@@ -24,6 +24,9 @@ export function isWellFormedAction(action: IntentionalAction): boolean {
   if (action.type === "move") {
     return isDirection(action.direction);
   }
+  if (action.type === "thrust") {
+    return isDirection(action.direction);
+  }
   if (action.type === "interact") {
     return action.direction === undefined;
   }

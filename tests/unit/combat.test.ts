@@ -8,6 +8,8 @@ import {
   createAcceptedWorldCache,
   createMonsterActor,
   createNewGame,
+  cooldownRemaining,
+  CONTENT_REGISTRY,
   forcedMove,
   governingStat,
   hasLineOfSight,
@@ -85,12 +87,29 @@ describe("combat formulas", () => {
     expect(RESISTANCE_MULTIPLIER.immune).toBe(0);
   });
 
-  it("uses average2 governing stats and clamps hit chance", () => {
-    expect(governingStat({ str: 4, dex: 6, con: 4, spd: 4, wis: 4, int: 4, cha: 4, psy: 4 }, ["str", "dex"])).toBe(5);
-    expect(governingStat({ str: 4, dex: 6, con: 4, spd: 4, wis: 4, int: 4, cha: 4, psy: 4 }, ["str"])).toBe(4);
+  it("uses named scaling rules and clamps hit chance", () => {
+    const attrs = { str: 4, dex: 6, con: 4, spd: 4, wis: 4, int: 4, cha: 4, psy: 4 };
+    expect(governingStat(attrs, ["str"], "single")).toBe(4);
+    expect(governingStat(attrs, ["str", "dex"], "average2")).toBe(5);
+    expect(governingStat(attrs, ["str", "dex"], "max2")).toBe(6);
+    expect(governingStat(attrs, ["str", "dex"], "min2")).toBe(4);
+    expect(governingStat(attrs, ["str", "dex"], "none")).toBe(0);
+    expect(governingStat(attrs, ["str", "dex"], "max2")).not.toBe(governingStat(attrs, ["str", "dex"], "average2"));
     expect(hitChancePercent(4, 4)).toBe(60);
     expect(hitChancePercent(4, 20)).toBe(20);
     expect(hitChancePercent(20, 4)).toBe(95);
+  });
+
+  it("keeps authored attack governing stats after explicit scaling rows", () => {
+    const attrs = { str: 4, dex: 6, con: 4, spd: 4, wis: 4, int: 4, cha: 4, psy: 4 };
+    for (const attack of CONTENT_REGISTRY.attacks) {
+      const inferred =
+        attack.attributes.length === 0 ? "none" : attack.attributes.length === 1 ? "single" : "average2";
+      expect(attack.scalingRule).toBe(inferred);
+      expect(governingStat(attrs, attack.attributes, attack.scalingRule)).toBe(
+        governingStat(attrs, attack.attributes, inferred),
+      );
+    }
   });
 
   it("applies channel then resistance then armour, floors, and min-1 except blocked/immune", () => {
@@ -244,5 +263,64 @@ describe("status timing, death, and a headless fight", () => {
     expect(runtime.save.player.inventory.find((row) => row.itemId === "healing_herb")?.quantity).toBe(1);
     const rat = scaledMonster(runtime.content.byId.monster.get("rat")!, { a: 0, b: 1 });
     expect(rat.maxHp).toBeGreaterThan(0);
+  });
+});
+
+describe("cooldowns", () => {
+  it("lets cooldown 0 be reused on the next tick", () => {
+    const runtime = newGame();
+    placeAdjacentRat(runtime);
+    expect(
+      applyPlayerCommand(runtime, {
+        type: "queue",
+        action: { type: "attack", attackId: "sword_slash", targetId: "rat.1" },
+      }).ok,
+    ).toBe(true);
+    const first = advanceTick(runtime);
+    expect(first.events.some((event) => event.detail === "cooldown")).toBe(false);
+    expect(cooldownRemaining(playerActor(runtime), "sword_slash")).toBe(0);
+    expect(
+      applyPlayerCommand(runtime, {
+        type: "queue",
+        action: { type: "attack", attackId: "sword_slash", targetId: "rat.1" },
+      }).ok,
+    ).toBe(true);
+    const second = advanceTick(runtime);
+    expect(second.events.some((event) => event.detail === "cooldown")).toBe(false);
+  });
+
+  it("blocks cooldown N for exactly N subsequent ticks without extending on failed attempts", () => {
+    const runtime = newGame();
+    placeAdjacentRat(runtime);
+    runtime.save.player.equipment = { ...runtime.save.player.equipment, offhand: "wooden_shield" };
+    const bash = () =>
+      applyPlayerCommand(runtime, {
+        type: "queue",
+        action: { type: "ability", abilityId: "shield_bash_ability", targetId: "rat.1" },
+      });
+    expect(bash().ok).toBe(true);
+    const used = advanceTick(runtime);
+    expect(used.events.some((event) => event.detail === "cooldown")).toBe(false);
+    const player = playerActor(runtime);
+    expect(cooldownRemaining(player, "shield_bash")).toBe(1);
+    expect(cooldownRemaining(player, "shield_bash_ability")).toBe(2);
+
+    expect(bash().ok).toBe(true);
+    const blocked1 = advanceTick(runtime);
+    expect(blocked1.events.some((event) => event.type === "action_failed" && event.detail === "cooldown")).toBe(true);
+    expect(cooldownRemaining(player, "shield_bash")).toBe(0);
+    expect(cooldownRemaining(player, "shield_bash_ability")).toBe(1);
+
+    expect(bash().ok).toBe(true);
+    const blocked2 = advanceTick(runtime);
+    expect(blocked2.events.some((event) => event.type === "action_failed" && event.detail === "cooldown")).toBe(true);
+    expect(cooldownRemaining(player, "shield_bash")).toBe(0);
+    expect(cooldownRemaining(player, "shield_bash_ability")).toBe(0);
+
+    expect(bash().ok).toBe(true);
+    const ready = advanceTick(runtime);
+    expect(ready.events.some((event) => event.detail === "cooldown")).toBe(false);
+    expect(cooldownRemaining(player, "shield_bash")).toBe(1);
+    expect(cooldownRemaining(player, "shield_bash_ability")).toBe(2);
   });
 });

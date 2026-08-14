@@ -1,15 +1,33 @@
 import { CHANNEL_MULTIPLIER, GLOBAL_CONSTANTS, RESISTANCE_MULTIPLIER } from "../model/constants";
 import type { AttributeBlock } from "../model/content-types";
-import type { AttributeId, ChannelStateId, ResistanceStateId } from "../model/ids";
+import type { AttributeId, ChannelStateId, ResistanceStateId, ScalingRuleId } from "../model/ids";
 
-export function governingStat(attributes: AttributeBlock, ids: readonly AttributeId[]): number {
-  if (ids.length === 0) {
-    return 0;
+export function governingStat(
+  attributes: AttributeBlock,
+  ids: readonly AttributeId[],
+  rule: ScalingRuleId,
+): number {
+  switch (rule) {
+    case "none":
+      return 0;
+    case "single":
+      return ids[0] ? attributes[ids[0]] : 0;
+    case "average2": {
+      const left = ids[0] ? attributes[ids[0]] : 0;
+      const right = ids[1] ? attributes[ids[1]] : 0;
+      return Math.floor((left + right) / 2);
+    }
+    case "max2": {
+      const left = ids[0] ? attributes[ids[0]] : 0;
+      const right = ids[1] ? attributes[ids[1]] : 0;
+      return Math.max(left, right);
+    }
+    case "min2": {
+      const left = ids[0] ? attributes[ids[0]] : 0;
+      const right = ids[1] ? attributes[ids[1]] : 0;
+      return Math.min(left, right);
+    }
   }
-  if (ids.length === 1) {
-    return attributes[ids[0]!];
-  }
-  return Math.floor((attributes[ids[0]!] + attributes[ids[1]!]) / 2);
 }
 
 export function hitChancePercent(attackScore: number, defenceScore: number): number {

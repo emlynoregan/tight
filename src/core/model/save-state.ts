@@ -24,7 +24,7 @@ export type EquipmentLoadout = {
 };
 
 export interface IntentionalAction {
-  readonly type: "move" | "wait" | "interact" | "attack" | "ability" | "item";
+  readonly type: "move" | "wait" | "interact" | "attack" | "ability" | "item" | "thrust";
   readonly direction?: Direction;
   readonly targetId?: string;
   readonly attackId?: CatalogueId;
@@ -43,7 +43,10 @@ export interface StatusInstance {
 export interface CooldownInstance {
   id: CatalogueId;
   remainingTicks: number;
+  startedOnTick: number;
 }
+
+export type AiState = "idle" | "alert" | "chasing" | "fleeing" | "disabled";
 
 export interface ActorState {
   readonly id: string;
@@ -59,6 +62,40 @@ export interface ActorState {
   blocking: boolean;
   statuses: StatusInstance[];
   cooldowns: CooldownInstance[];
+  aiState: AiState;
+  ambushReleased: boolean;
+  lastAffectedTick: number;
+  guardX: number;
+  guardY: number;
+  vx: number;
+  vy: number;
+  aiPhaseIndex: number;
+}
+
+export function defaultAiFields(x: number, y: number): Pick<
+  ActorState,
+  "aiState" | "ambushReleased" | "lastAffectedTick" | "guardX" | "guardY" | "vx" | "vy" | "aiPhaseIndex"
+> {
+  return {
+    aiState: "idle",
+    ambushReleased: false,
+    lastAffectedTick: -1,
+    guardX: x,
+    guardY: y,
+    vx: 0,
+    vy: 0,
+    aiPhaseIndex: 0,
+  };
+}
+
+export function directionFromDelta(delta: MapCoordinate): Direction | null {
+  for (const direction of DIRECTIONS) {
+    const step = DIRECTION_DELTA[direction];
+    if (step.x === delta.x && step.y === delta.y) {
+      return direction;
+    }
+  }
+  return null;
 }
 
 export interface PlayerState {

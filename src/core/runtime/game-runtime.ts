@@ -9,7 +9,7 @@ import type { WorldTopology } from "../generation/topology-types";
 import { GLOBAL_CONSTANTS } from "../model/constants";
 import type { GeneratorVersionId } from "../model/ids";
 import { planesEqual, STARTING_PLANE, type MapCoordinate, type PlanePair } from "../model/plane";
-import type { ActorState, EquipmentLoadout, IntentionalAction, SaveState } from "../model/save-state";
+import { defaultAiFields, type ActorState, type EquipmentLoadout, type IntentionalAction, type SaveState } from "../model/save-state";
 import { scaledMonster } from "../rules/actor-stats";
 import { materializeRuntimePlane } from "./materialize-plane";
 
@@ -86,6 +86,7 @@ function actorAtPoint(
     blocking: true,
     statuses: [],
     cooldowns: [],
+    ...defaultAiFields(point.x, point.y),
   };
 }
 
@@ -140,6 +141,7 @@ export function createRuntimeFromAccepted(
     blocking: true,
     statuses: [],
     cooldowns: [],
+    ...defaultAiFields(spawn.x, spawn.y),
   };
   const save: SaveState = {
     generatorVersion: world.topology.generatorVersion,
@@ -227,5 +229,6 @@ export function createMonsterActor(
     blocking: true,
     statuses: [],
     cooldowns: [],
+    ...defaultAiFields(x, y),
   };
 }

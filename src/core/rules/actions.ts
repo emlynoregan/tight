@@ -5,6 +5,7 @@ import type { ActorState, IntentionalAction, SaveState } from "../model/save-sta
 import { DIRECTION_DELTA } from "../model/save-state";
 import { prepareAction, resolveAbilityAction, resolveAttackAction, resolveItemAction } from "./combat";
 import { canOccupy, destinationCell, featureAt, featureIsInteractive } from "./occupancy";
+import { applyThrust } from "./space";
 import type { TickEvent } from "./tick-events";
 
 export type { TickEvent } from "./tick-events";
@@ -26,6 +27,13 @@ export function resolveAction(
   const resolved = prepared;
   if (resolved.type === "wait") {
     return [{ type: "action_waited", actorId: actor.id }];
+  }
+  if (resolved.type === "thrust") {
+    if (!resolved.direction) {
+      return [{ type: "action_failed", actorId: actor.id, detail: "missing direction" }];
+    }
+    applyThrust(actor, resolved.direction);
+    return [{ type: "thrusted", actorId: actor.id, detail: resolved.direction, x: actor.vx, y: actor.vy }];
   }
   if (resolved.type === "move") {
     if (!resolved.direction) {

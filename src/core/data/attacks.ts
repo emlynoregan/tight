@@ -1,5 +1,15 @@
-import type { AttackChannelId, AttributeId, DamageTypeId, TargetingShapeId } from "../model/ids";
+import type { AttackChannelId, AttributeId, DamageTypeId, ScalingRuleId, TargetingShapeId } from "../model/ids";
 import type { AttackDefinition } from "../model/content-types";
+
+function defaultScalingRule(attributes: readonly AttributeId[]): ScalingRuleId {
+  if (attributes.length === 0) {
+    return "none";
+  }
+  if (attributes.length === 1) {
+    return "single";
+  }
+  return "average2";
+}
 
 function attack(
   id: string,
@@ -14,7 +24,7 @@ function attack(
   damageType: DamageTypeId | null,
   requiresLos: boolean,
   cooldown: number,
-  extra?: { tags?: readonly string[]; onHitStatusId?: string },
+  extra?: { tags?: readonly string[]; onHitStatusId?: string; scalingRule?: ScalingRuleId },
 ): AttackDefinition {
   const tags = [...(extra?.tags ?? [])];
   if (shape === "adjacent") {
@@ -32,6 +42,7 @@ function attack(
     id,
     name,
     attributes,
+    scalingRule: extra?.scalingRule ?? defaultScalingRule(attributes),
     channel,
     accuracy,
     power,

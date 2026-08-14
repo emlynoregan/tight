@@ -1,11 +1,13 @@
 import type { IntentionalAction } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
 import { resolveAction } from "./actions";
+import { selectMonsterAction } from "./ai";
 import { applyPeriodicStatuses, expireStatusesAndCooldowns } from "./apply-effects";
 import { effectiveAttributes, effectiveInitiativeModifier, syncDerivedMaxHp } from "./actor-stats";
 import { capturePlayerAction } from "./commands";
 import { resolveDeaths } from "./death";
 import { initiativeOrder } from "./initiative";
+import { applyEnvironmentalMovement } from "./space";
 import type { TickEvent } from "./tick-events";
 
 export interface TickResult {
@@ -29,9 +31,10 @@ export function advanceTick(runtime: GameRuntime): TickResult {
   const intended = new Map<string, IntentionalAction>();
   intended.set("player", playerAction);
   for (const actor of save.actors) {
-    if (actor.id !== "player") {
-      intended.set(actor.id, runtime.scriptedActions.get(actor.id) ?? { type: "wait" });
+    if (actor.id === "player") {
+      continue;
     }
+    intended.set(actor.id, runtime.scriptedActions.get(actor.id) ?? selectMonsterAction(runtime, actor));
   }
 
   const events: TickEvent[] = [];
@@ -52,6 +55,7 @@ export function advanceTick(runtime: GameRuntime): TickResult {
     acted.add(entry.actorId);
   }
 
+  applyEnvironmentalMovement(save, runtime.currentPlaneBase, order, events);
   applyPeriodicStatuses(save, runtime.currentPlaneBase, events);
   resolveDeaths(save, events);
   expireStatusesAndCooldowns(save, events);

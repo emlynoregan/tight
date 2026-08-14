@@ -8,6 +8,7 @@ import type {
   FamilyId,
   RarityId,
   ResistanceStateId,
+  ScalingRuleId,
   TargetingShapeId,
 } from "./ids";
 import type { DimensionNumber, PlanePair } from "./plane";
@@ -163,6 +164,7 @@ export interface AttackDefinition {
   readonly id: CatalogueId;
   readonly name: string;
   readonly attributes: readonly AttributeId[];
+  readonly scalingRule: ScalingRuleId;
   readonly channel: AttackChannelId;
   readonly accuracy: number;
   readonly power: number;

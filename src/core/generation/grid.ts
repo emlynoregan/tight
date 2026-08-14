@@ -45,6 +45,15 @@ export function manhattan(left: MapCoordinate, right: MapCoordinate): number {
   return Math.abs(left.x - right.x) + Math.abs(left.y - right.y);
 }
 
+export function manhattanOnPlane(left: MapCoordinate, right: MapCoordinate, wraps: boolean): number {
+  if (!wraps) {
+    return manhattan(left, right);
+  }
+  const dx = Math.min(Math.abs(left.x - right.x), MAP_SIZE - Math.abs(left.x - right.x));
+  const dy = Math.min(Math.abs(left.y - right.y), MAP_SIZE - Math.abs(left.y - right.y));
+  return dx + dy;
+}
+
 export function chebyshev(left: MapCoordinate, right: MapCoordinate): number {
   return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
 }

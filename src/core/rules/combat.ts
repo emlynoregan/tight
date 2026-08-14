@@ -91,6 +91,91 @@ function collectTargets(
   return actorsInCells(save.actors, cells).sort((left, right) => compareStableIds(left.id, right.id));
 }
 
+export interface CombatLegalOptions {
+  readonly origin?: MapCoordinate;
+  readonly ignoreCooldown?: boolean;
+}
+
+function actorAtOrigin(actor: ActorState, origin?: MapCoordinate): ActorState {
+  return origin ? { ...actor, x: origin.x, y: origin.y } : actor;
+}
+
+export function combatActionLegal(
+  save: SaveState,
+  plane: PlaneBase,
+  actor: ActorState,
+  action: IntentionalAction,
+  options: CombatLegalOptions = {},
+): boolean {
+  const viewed = actorAtOrigin(actor, options.origin);
+  if (action.type === "attack") {
+    const attackId = action.attackId;
+    if (!attackId || !grantedAttackIds(save, actor).includes(attackId)) {
+      return false;
+    }
+    if (!options.ignoreCooldown && cooldownRemaining(actor, attackId) > 0) {
+      return false;
+    }
+    const attack = CONTENT_REGISTRY.byId.attack.get(attackId);
+    if (!attack) {
+      return false;
+    }
+    if (channelStateForFamily(save.family, attack.channel) === "blocked") {
+      return false;
+    }
+    const collected = collectTargets(save, plane, viewed, attack, action);
+    if ("error" in collected) {
+      return false;
+    }
+    if (action.targetId && !collected.some((row) => row.id === action.targetId)) {
+      return false;
+    }
+    return collected.length > 0;
+  }
+  if (action.type === "ability") {
+    const abilityId = action.abilityId;
+    if (!abilityId || !grantedAbilityIds(save, actor).includes(abilityId)) {
+      return false;
+    }
+    const ability = CONTENT_REGISTRY.byId.ability.get(abilityId);
+    if (!ability) {
+      return false;
+    }
+    if (ability.kind === "dimensional" || ability.kind === "item" || ability.kind === "learn_event") {
+      return false;
+    }
+    if (ability.tags.includes("spell") && actorPreventsSpells(actor)) {
+      return false;
+    }
+    if (
+      !options.ignoreCooldown &&
+      (cooldownRemaining(actor, ability.id) > 0 ||
+        (ability.attackId !== null && cooldownRemaining(actor, ability.attackId) > 0))
+    ) {
+      return false;
+    }
+    if (!ability.attackId) {
+      return true;
+    }
+    const attack = CONTENT_REGISTRY.byId.attack.get(ability.attackId);
+    if (!attack) {
+      return false;
+    }
+    if (channelStateForFamily(save.family, attack.channel) === "blocked") {
+      return false;
+    }
+    const collected = collectTargets(save, plane, viewed, attack, action);
+    if ("error" in collected) {
+      return false;
+    }
+    if (action.targetId && !collected.some((row) => row.id === action.targetId)) {
+      return false;
+    }
+    return collected.length > 0;
+  }
+  return false;
+}
+
 function targetStillLegal(
   plane: PlaneBase,
   attacker: ActorState,
@@ -152,7 +237,7 @@ export function resolveAttackOnTargets(
   events: TickEvent[],
 ): void {
   const attackerAttrs = effectiveAttributes(save, attacker);
-  const gov = governingStat(attackerAttrs, attack.attributes);
+  const gov = governingStat(attackerAttrs, attack.attributes, attack.scalingRule);
   const attackScore = gov + attack.accuracy;
   const channel = channelStateForFamily(family, attack.channel);
   if (channel === "blocked") {
@@ -177,6 +262,9 @@ export function resolveAttackOnTargets(
       continue;
     }
     events.push({ type: "attack_hit", actorId: attacker.id, targetId: target.id, attackId: attack.id });
+    if (attacker.kind === "player") {
+      target.lastAffectedTick = save.tick;
+    }
     if (attack.damageType) {
       const pipeline = resolveDamagePipeline({
         basePower: attack.power,
@@ -253,7 +341,7 @@ export function resolveAttackAction(
   }
   const events: TickEvent[] = [];
   resolveAttackOnTargets(save, plane, actor, attack, collected, [], family, events);
-  startCooldown(actor, attack.id, attack.cooldown);
+  startCooldown(actor, attack.id, attack.cooldown, save.tick);
   return events;
 }
 
@@ -293,12 +381,12 @@ export function resolveAbilityAction(
       return fail(actor.id, collected.error);
     }
     resolveAttackOnTargets(save, plane, actor, attack, collected, extra, family, events);
-    startCooldown(actor, attack.id, attack.cooldown);
+    startCooldown(actor, attack.id, attack.cooldown, save.tick);
   } else {
     breakHiddenOnHostile(actor, events);
     applyEffectIds(save, plane, extra, actor, actor, events);
   }
-  startCooldown(actor, ability.id, ability.cooldown);
+  startCooldown(actor, ability.id, ability.cooldown, save.tick);
   return events;
 }
 

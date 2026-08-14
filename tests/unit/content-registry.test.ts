@@ -109,6 +109,16 @@ describe("content registry", () => {
     expect(rangeIssues.some((issue) => issue.message.includes("illegal blob area range"))).toBe(true);
   });
 
+  it("rejects an invalid scaling-rule and attribute combination", () => {
+    const original = CONTENT_REGISTRY.attacks[0]!;
+    const issues = validateContentRegistry(
+      withRegistry({
+        attacks: [{ ...original, scalingRule: "average2" }, ...CONTENT_REGISTRY.attacks.slice(1)],
+      }),
+    );
+    expect(issues.some((issue) => issue.message.includes("average2 requires exactly two attributes"))).toBe(true);
+  });
+
   it("createContentRegistry returns an independent but equivalent registry", () => {
     const created = createContentRegistry();
     expect(validateContentRegistry(created)).toEqual([]);

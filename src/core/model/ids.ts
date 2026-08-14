@@ -66,4 +66,8 @@ export type TargetingShapeId =
   | "radius2"
   | "cross1";
 
+export type ScalingRuleId = "single" | "average2" | "max2" | "min2" | "none";
+
+export const SCALING_RULES = ["single", "average2", "max2", "min2", "none"] as const;
+
 export type GeneratorVersionId = "tight-v1";

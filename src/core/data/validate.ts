@@ -2,6 +2,7 @@ import type { ContentRegistry } from "./registry";
 import { CONTENT_REGISTRY } from "./registry";
 import { ENCOUNTER_ROLES, PLACEMENT_PATTERNS } from "./encounters";
 import { AI_PROFILES } from "./monsters";
+import { SCALING_RULES } from "../model/ids";
 import type { PrimitiveProfile } from "../model/content-types";
 
 export interface ValidationIssue {
@@ -114,6 +115,22 @@ export function validateContentRegistry(
     }
     if (attack.accuracy < -5 || attack.accuracy > 5) {
       issues.push({ path: `attacks.${attack.id}.accuracy`, message: `unusual accuracy ${attack.accuracy}` });
+    }
+    if (!(SCALING_RULES as readonly string[]).includes(attack.scalingRule)) {
+      issues.push({ path: `attacks.${attack.id}.scalingRule`, message: `unknown scaling rule ${attack.scalingRule}` });
+    } else if (attack.scalingRule === "single" && attack.attributes.length !== 1) {
+      issues.push({
+        path: `attacks.${attack.id}.scalingRule`,
+        message: `single requires exactly one attribute, found ${attack.attributes.length}`,
+      });
+    } else if (
+      (attack.scalingRule === "average2" || attack.scalingRule === "max2" || attack.scalingRule === "min2") &&
+      attack.attributes.length !== 2
+    ) {
+      issues.push({
+        path: `attacks.${attack.id}.scalingRule`,
+        message: `${attack.scalingRule} requires exactly two attributes, found ${attack.attributes.length}`,
+      });
     }
   }
 

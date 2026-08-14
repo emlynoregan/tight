@@ -146,6 +146,9 @@ export function applyAtomicEffect(
         flatArmour(save, target, damageType),
       );
       applyHpDamage(target, amount, events, damageType);
+      if (source?.kind === "player") {
+        target.lastAffectedTick = save.tick;
+      }
       return;
     }
     case "applyStatus":
@@ -236,6 +239,10 @@ export function expireStatusesAndCooldowns(save: SaveState, events: TickEvent[])
     actor.statuses = kept;
     const remainingCooldowns = [];
     for (const cooldown of actor.cooldowns) {
+      if (cooldown.startedOnTick === save.tick) {
+        remainingCooldowns.push(cooldown);
+        continue;
+      }
       cooldown.remainingTicks -= 1;
       if (cooldown.remainingTicks > 0) {
         remainingCooldowns.push(cooldown);

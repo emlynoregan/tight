@@ -210,14 +210,17 @@ export function cooldownRemaining(actor: ActorState, id: string): number {
   return actor.cooldowns.find((row) => row.id === id)?.remainingTicks ?? 0;
 }
 
-export function startCooldown(actor: ActorState, id: string, ticks: number): void {
+export function startCooldown(actor: ActorState, id: string, ticks: number, startedOnTick: number): void {
   if (ticks <= 0) {
     return;
   }
   const existing = actor.cooldowns.find((row) => row.id === id);
   if (existing) {
-    existing.remainingTicks = Math.max(existing.remainingTicks, ticks);
+    if (ticks > existing.remainingTicks) {
+      existing.remainingTicks = ticks;
+      existing.startedOnTick = startedOnTick;
+    }
     return;
   }
-  actor.cooldowns.push({ id, remainingTicks: ticks });
+  actor.cooldowns.push({ id, remainingTicks: ticks, startedOnTick });
 }
