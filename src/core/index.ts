@@ -20,6 +20,7 @@ export {
   boundedInt,
   boundedUnit,
   chance,
+  compareStableIds,
   percentile,
   randomUint64,
   semantic,
@@ -30,7 +31,9 @@ export {
 } from "./generation/semantic-random";
 export type { SemanticPart, WeightedEntry } from "./generation/semantic-random";
 export { bytesToHex, sha256 } from "./generation/sha256";
-export { generateTopology, validateTopology } from "./generation/topology-generator";
-export { resolveProgressionOutcomes } from "./generation/resolve-progression";
+export { generateTopology, validateTopology, hashTopology } from "./generation/topology-generator";
+export { canonicalizeTopology } from "./generation/canonical";
+export { resolveProgressionOutcomes, resolveRewardProfileDrop } from "./generation/resolve-progression";
 export { potentialNeighbours, sharesExactlyOneDimension } from "./generation/topology-neighbours";
+export { planeEligibleForArchetype } from "./data/eligibility";
 export type { WorldTopology, TopologyGenerationResult } from "./generation/topology-types";

@@ -47,6 +47,12 @@ export interface PlaneFamilyDefinition {
   readonly defaultVisibility: CatalogueId;
   readonly walkableTargetMin: number;
   readonly walkableTargetMax: number;
+  readonly majorRegionsMin: number;
+  readonly majorRegionsMax: number;
+  readonly structuresMin: number;
+  readonly structuresMax: number;
+  readonly hazardDensityMinPercent: number;
+  readonly hazardDensityMaxPercent: number;
 }
 
 export interface PlaneOverride {
@@ -75,9 +81,75 @@ export interface StaticFeature {
   readonly tags: readonly string[];
 }
 
-export interface PrimitiveProfile {
+export type PrimitiveIntensity = "low" | "medium" | "high";
+
+export type PrimitiveProfile =
+  | {
+      readonly id: CatalogueId;
+      readonly kind: "blob";
+      readonly areaMin: number;
+      readonly areaMax: number;
+      readonly compactness: PrimitiveIntensity;
+      readonly branchiness: PrimitiveIntensity;
+    }
+  | {
+      readonly id: CatalogueId;
+      readonly kind: "line";
+      readonly widthMin: number;
+      readonly widthMax: number;
+      readonly straightness: PrimitiveIntensity;
+    }
+  | {
+      readonly id: CatalogueId;
+      readonly kind: "path";
+      readonly widthMin: number;
+      readonly widthMax: number;
+      readonly wander: PrimitiveIntensity;
+    }
+  | {
+      readonly id: CatalogueId;
+      readonly kind: "rectangle";
+      readonly widthMin: number;
+      readonly widthMax: number;
+      readonly heightMin: number;
+      readonly heightMax: number;
+    }
+  | {
+      readonly id: CatalogueId;
+      readonly kind: "strip";
+      readonly width: number;
+      readonly lengthMin: number;
+      readonly lengthMax: number;
+    }
+  | {
+      readonly id: CatalogueId;
+      readonly kind: "cluster";
+      readonly countMin: number;
+      readonly countMax: number;
+      readonly radius: number;
+    }
+  | {
+      readonly id: CatalogueId;
+      readonly kind: "scatter";
+      readonly density: "low" | "medium";
+      readonly minSpacing: number;
+    };
+
+export interface FeatureRecipeStep {
+  readonly primitiveId?: CatalogueId;
+  readonly templateId?: CatalogueId;
+  readonly featureId?: CatalogueId;
+  readonly tileId?: CatalogueId;
+  readonly optional?: boolean;
+  readonly countMin?: number;
+  readonly countMax?: number;
+  readonly notes?: string;
+}
+
+export interface FeatureRecipe {
   readonly id: CatalogueId;
-  readonly kind: "blob" | "line" | "path" | "rectangle" | "strip" | "cluster" | "scatter";
+  readonly family: FamilyId | "any";
+  readonly steps: readonly FeatureRecipeStep[];
 }
 
 export interface StructureTemplate {
@@ -268,6 +340,39 @@ export interface ShopType {
   readonly id: CatalogueId;
   readonly stapleItemIds: readonly CatalogueId[];
   readonly limitedPoolItemIds: readonly CatalogueId[];
+  readonly limitedPickCount: number;
+  readonly maxRareExtras: number;
+}
+
+export interface ShopStockEntry {
+  readonly itemId: CatalogueId;
+  readonly priceOverride: number | null;
+}
+
+export interface ShopInstanceDefinition {
+  readonly id: CatalogueId;
+  readonly shopTypeId: CatalogueId;
+  readonly npcId: CatalogueId | null;
+  readonly anchorNpcId: CatalogueId | null;
+  readonly onStartingPlane: boolean;
+  readonly specialStock: readonly ShopStockEntry[];
+}
+
+export type QuestObjective =
+  | { readonly type: "speak_to_giver" }
+  | { readonly type: "reach_dimension"; readonly dimension: number }
+  | { readonly type: "defeat_encounter"; readonly encounterId: CatalogueId }
+  | { readonly type: "recover_and_return" }
+  | { readonly type: "activate_or_deliver" }
+  | { readonly type: "deliver_resources"; readonly countMin: number; readonly countMax: number };
+
+export interface QuestRewards {
+  readonly flagIds: readonly CatalogueId[];
+  readonly learnAbilityIds: readonly CatalogueId[];
+  readonly apEventId: CatalogueId | null;
+  readonly bindsGeneratedGuardianGate: boolean;
+  readonly coinMin?: number;
+  readonly coinMax?: number;
 }
 
 export interface QuestDefinition {
@@ -275,6 +380,17 @@ export interface QuestDefinition {
   readonly name: string;
   readonly giver: CatalogueId | null;
   readonly major: boolean;
+  readonly usableAsProgressionGate: boolean;
+  readonly objectives: readonly QuestObjective[];
+  readonly rewards: QuestRewards;
+}
+
+export interface AbilityAcquisition {
+  readonly abilityId: CatalogueId;
+  readonly questId: CatalogueId | null;
+  readonly giverNpcId: CatalogueId | null;
+  readonly prerequisiteEncounterId: CatalogueId | null;
+  readonly fixedRewardId: CatalogueId | null;
 }
 
 export interface HazardDefinition {

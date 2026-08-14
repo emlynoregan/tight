@@ -47,6 +47,16 @@ describe("content registry", () => {
     expect(CONTENT_REGISTRY.byId.quest.has("q_first_crack")).toBe(true);
     expect(CONTENT_REGISTRY.bossEncounter.arenaId).toBe("olympus_arena");
     expect(CONTENT_REGISTRY.startingLoadout.equippedWeapon).toBe("sword");
+    const spirit = CONTENT_REGISTRY.byId.quest.get("q_spirit_path");
+    expect(spirit?.objectives).toEqual([{ type: "defeat_encounter", encounterId: "guardian_spirit" }]);
+    expect(spirit?.rewards.learnAbilityIds).toEqual(["dream_step"]);
+    expect(spirit?.rewards.flagIds).toContain("spirit_route_open");
+    const blob = CONTENT_REGISTRY.byId.primitiveProfile.get("blob_small_tight");
+    expect(blob).toMatchObject({ kind: "blob", areaMin: 4, areaMax: 10, compactness: "high" });
+    const forest = CONTENT_REGISTRY.byId.featureRecipe.get("forest_patch");
+    expect(forest?.steps.some((step) => step.primitiveId === "blob_medium")).toBe(true);
+    expect(CONTENT_REGISTRY.abilityAcquisitions.some((row) => row.abilityId === "divine_passage" && row.questId === null)).toBe(true);
+    expect(CONTENT_REGISTRY.planeFamilies[0]?.majorRegionsMin).toBe(2);
   });
 
   it("rejects duplicate catalogue IDs", () => {
@@ -79,6 +89,24 @@ describe("content registry", () => {
       }),
     );
     expect(issues.some((issue) => issue.message.includes("dangling reference no_such_hazard"))).toBe(true);
+  });
+
+  it("rejects dangling quest givers and illegal primitive ranges", () => {
+    const original = CONTENT_REGISTRY.quests[0]!;
+    const giverIssues = validateContentRegistry(
+      withRegistry({
+        quests: [{ ...original, giver: "no_such_npc" }, ...CONTENT_REGISTRY.quests.slice(1)],
+      }),
+    );
+    expect(giverIssues.some((issue) => issue.message.includes("dangling reference no_such_npc"))).toBe(true);
+
+    const blob = CONTENT_REGISTRY.primitiveProfiles.find((row) => row.kind === "blob")!;
+    const rangeIssues = validateContentRegistry(
+      withRegistry({
+        primitiveProfiles: [{ ...blob, areaMin: 20, areaMax: 4 }, ...CONTENT_REGISTRY.primitiveProfiles.filter((row) => row.id !== blob.id)],
+      }),
+    );
+    expect(rangeIssues.some((issue) => issue.message.includes("illegal blob area range"))).toBe(true);
   });
 
   it("createContentRegistry returns an independent but equivalent registry", () => {

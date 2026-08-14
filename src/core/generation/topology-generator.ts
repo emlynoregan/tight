@@ -10,18 +10,22 @@ import {
   type PlanePair,
 } from "../model/plane";
 import type { FamilyId } from "../model/ids";
-import { bytesToHex, sha256 } from "./sha256";
 import { chance, percentile, semantic, weightedChoice, type SemanticPart } from "./semantic-random";
 import { neighbourWeight, potentialNeighbours, planeTier, sharesExactlyOneDimension } from "./topology-neighbours";
+import { hashTopology, sortByStableId } from "./canonical";
+import {
+  assignAbilitySource,
+  createGateGuardian,
+  createPlacementContext,
+  ensureQuest,
+  placeCatalogueShops,
+} from "./topology-progress";
+import { TRANSITION_EFFECT_PROFILES } from "../data/transitions";
+import { planeEligibleForArchetype } from "../data/eligibility";
 import type {
-  GuardianInstance,
-  NpcInstance,
   OlympusBossInstance,
   PlaneNode,
   ProgressionClass,
-  ProgressionSource,
-  QuestInstance,
-  ShopInstance,
   TopologyGate,
   TopologyGenerationResult,
   TopologyTransition,
@@ -255,7 +259,7 @@ function makeTransition(
     archetypeId,
     transitionEffectProfileId: mode.profile,
     coordinateMode: mode.mode,
-    conditionSetId: progressionClass === "open" || progressionClass === "optional_broken" ? null : `condition.${id}`,
+    conditionSetId: null,
     gateId: progressionClass === "open" || progressionClass === "optional_broken" ? null : `gate.${id}`,
     progressionClass,
     initiallyBroken,
@@ -276,10 +280,16 @@ function classEligible(progressionClass: ProgressionClass, destination: PlanePai
     case "resource_gate":
       return (RESOURCES_BY_TIER[tier] ?? []).length > 0;
     case "ability_gate":
-      return (ABILITIES_BY_TIER[tier] ?? []).length > 0;
+      return abilityOptions(tier).length > 0;
     case "quest_flag_gate":
-      return true;
+      return CONTENT_REGISTRY.quests.some((quest) => quest.usableAsProgressionGate);
   }
+}
+
+function abilityOptions(tier: number): string[] {
+  return (ABILITIES_BY_TIER[tier] ?? []).filter((abilityId) =>
+    CONTENT_REGISTRY.abilityAcquisitions.some((row) => row.abilityId === abilityId),
+  );
 }
 
 function pickOne<T extends string>(
@@ -398,23 +408,12 @@ export function generateTopology(
   }
 
   const gates: TopologyGate[] = [];
-  const progressionSources: ProgressionSource[] = [];
-  const guardianInstances: GuardianInstance[] = [];
-  const questInstances: QuestInstance[] = [];
-  const npcInstances: NpcInstance[] = [];
-  const shopInstances: ShopInstance[] = [];
-  const usedNpcs = new Set<string>();
-
-  function placeNpc(npcId: string, plane: PlanePair): string {
-    const existing = npcInstances.find((row) => row.npcId === npcId);
-    if (existing) {
-      return existing.id;
-    }
-    const id = `npc.${npcId}.${planeKey(plane)}.0`;
-    npcInstances.push({ id, npcId, plane });
-    usedNpcs.add(npcId);
-    return id;
-  }
+  const placement = createPlacementContext(
+    generatorVersion,
+    worldSeed,
+    topologyAttempt,
+    planeNodes.map((node) => node.plane),
+  );
 
   for (const transition of transitions) {
     if (!transition.gateId || transition.initiallyBroken) {
@@ -422,53 +421,38 @@ export function generateTopology(
     }
     const destTier = planeTier(transition.destinationPlane);
     const sourceTier = planeTier(transition.sourcePlane);
+    const sourcePlanes = planeNodes.filter((node) => planeTier(node.plane) <= sourceTier + 1).map((node) => node.plane);
     if (transition.progressionClass === "guardian_gate") {
       const options = eligibleGuardians(transition.destinationPlane);
       const chosen = pickOne(generatorVersion, worldSeed, topologyAttempt, "topology.guardian.assignment", transition.id, options.map((row) => row.id));
       const encounter = options.find((row) => row.id === chosen)!;
-      const guardianId = `guardian.${transition.id}`;
-      guardianInstances.push({
-        id: guardianId,
-        encounterId: chosen,
-        monsterId: encounter.monsterId,
-        plane: transition.sourcePlane,
-        gatedTransitionId: transition.id,
-      });
+      const guardian = createGateGuardian(placement, transition, chosen, encounter.monsterId);
       gates.push({
         id: transition.gateId,
         transitionId: transition.id,
         progressionClass: "guardian_gate",
         requiredFlag: `gate.${transition.id}.guardianDefeated`,
-        guardianInstanceId: guardianId,
-      });
-      progressionSources.push({
-        id: `source.guardian_reward.${guardianId}`,
-        plane: transition.sourcePlane,
-        sourceType: "guardian_reward",
-        grants: [`flag:gate.${transition.id}.guardianDefeated`],
-        requirements: [],
-        consumption: false,
-        contentReference: chosen,
-        quantity: 1,
+        guardianInstanceId: guardian.id,
       });
     } else if (transition.progressionClass === "key_gate") {
       const keyId = pickOne(generatorVersion, worldSeed, topologyAttempt, "topology.progressionSource.assignment", `${transition.id}.key`, KEYS_BY_TIER[destTier] ?? ["house_key"]);
-      const sourcePlanes = planeNodes.filter((node) => planeTier(node.plane) <= sourceTier + 1).map((node) => node.plane);
-      const sourcePlane = weightedChoice(
-        parts(generatorVersion, worldSeed, topologyAttempt, "topology.progressionSource.assignment", `${transition.id}.keyPlane`),
-        sourcePlanes.map((plane) => ({ id: planeKey(plane), weight: 1, value: plane })),
-      );
-      const sourceId = `source.fixed_item.${transition.id}.${keyId}`;
-      progressionSources.push({
-        id: sourceId,
-        plane: sourcePlane,
-        sourceType: "fixed_item",
-        grants: [`item:${keyId}`],
-        requirements: [],
-        consumption: false,
-        contentReference: keyId,
-        quantity: 1,
-      });
+      const existingKey = placement.progressionSources.find((source) => source.grants.includes(`item:${keyId}`));
+      if (!existingKey) {
+        const sourcePlane = weightedChoice(
+          parts(generatorVersion, worldSeed, topologyAttempt, "topology.progressionSource.assignment", `${transition.id}.keyPlane`),
+          sourcePlanes.map((plane) => ({ id: planeKey(plane), weight: 1, value: plane })),
+        );
+        placement.progressionSources.push({
+          id: `source.fixed_item.${keyId}`,
+          plane: sourcePlane,
+          sourceType: "fixed_item",
+          grants: [`item:${keyId}`],
+          requirements: [],
+          consumption: false,
+          contentReference: keyId,
+          quantity: 1,
+        });
+      }
       gates.push({
         id: transition.gateId,
         transitionId: transition.id,
@@ -482,14 +466,13 @@ export function generateTopology(
         { id: "2", weight: 25, value: 2 },
         { id: "3", weight: 5, value: 3 },
       ]);
-      const sourcePlanes = planeNodes.filter((node) => planeTier(node.plane) <= sourceTier + 1).map((node) => node.plane);
       for (let n = 0; n < quantity + 1; n += 1) {
         const sourcePlane = weightedChoice(
           parts(generatorVersion, worldSeed, topologyAttempt, "topology.progressionSource.assignment", `${transition.id}.resPlane`),
           sourcePlanes.map((plane) => ({ id: planeKey(plane), weight: 1, value: plane })),
           n,
         );
-        progressionSources.push({
+        placement.progressionSources.push({
           id: `source.container.${transition.id}.${resourceId}.${n}`,
           plane: sourcePlane,
           sourceType: "container",
@@ -508,41 +491,11 @@ export function generateTopology(
         requiredQuantity: quantity,
       });
     } else if (transition.progressionClass === "ability_gate") {
-      const abilityId = pickOne(generatorVersion, worldSeed, topologyAttempt, "topology.progressionSource.assignment", `${transition.id}.ability`, ABILITIES_BY_TIER[destTier] ?? ["arcane_gate"]);
-      const sourcePlanes = planeNodes.filter((node) => planeTier(node.plane) <= sourceTier + 1).map((node) => node.plane);
-      const sourcePlane = weightedChoice(
-        parts(generatorVersion, worldSeed, topologyAttempt, "topology.progressionSource.assignment", `${transition.id}.abilityPlane`),
-        sourcePlanes.map((plane) => ({ id: planeKey(plane), weight: 1, value: plane })),
-      );
-      const abilityQuest: Record<string, string> = {
-        arcane_gate: "q_arcane_gate",
-        dream_step: "q_spirit_path",
-        void_slip: "q_abyss_gate",
-        divine_passage: "q_olympus",
-      };
-      const quest = CONTENT_REGISTRY.byId.quest.get(abilityQuest[abilityId] ?? "q_arcane_gate")!;
-      const npcId = quest.giver;
-      const npcInstanceId = npcId ? placeNpc(npcId, sourcePlane) : null;
-      const questInstanceId = `quest.${quest.id}.${planeKey(sourcePlane)}.0`;
-      if (!questInstances.some((row) => row.id === questInstanceId)) {
-        questInstances.push({
-          id: questInstanceId,
-          questId: quest.id,
-          plane: sourcePlane,
-          npcId: npcInstanceId,
-          flagId: `gate.${transition.id}.questComplete`,
-        });
+      const abilityId = pickOne(generatorVersion, worldSeed, topologyAttempt, "topology.progressionSource.assignment", `${transition.id}.ability`, abilityOptions(destTier));
+      const assigned = assignAbilitySource(placement, transition, abilityId, sourcePlanes);
+      if (assigned.error) {
+        return { ok: false, code: "STRUCTURAL_VALIDATION_FAILED", message: assigned.error };
       }
-      progressionSources.push({
-        id: `source.npc_teaching.${transition.id}.${abilityId}`,
-        plane: sourcePlane,
-        sourceType: "npc_teaching",
-        grants: [`ability:${abilityId}`],
-        requirements: [],
-        consumption: false,
-        contentReference: abilityId,
-        quantity: 1,
-      });
       gates.push({
         id: transition.gateId,
         transitionId: transition.id,
@@ -550,57 +503,33 @@ export function generateTopology(
         requiredAbilityId: abilityId,
       });
     } else if (transition.progressionClass === "quest_flag_gate") {
-      const quest = pickOne(
+      const questId = pickOne(
         generatorVersion,
         worldSeed,
         topologyAttempt,
         "topology.quest.assignment",
         transition.id,
-        CONTENT_REGISTRY.quests.filter((row) => row.major).map((row) => row.id),
+        CONTENT_REGISTRY.quests.filter((row) => row.usableAsProgressionGate).map((row) => row.id),
       );
-      const questDef = CONTENT_REGISTRY.byId.quest.get(quest)!;
-      const sourcePlanes = planeNodes.filter((node) => planeTier(node.plane) <= sourceTier + 1).map((node) => node.plane);
-      const sourcePlane = weightedChoice(
-        parts(generatorVersion, worldSeed, topologyAttempt, "topology.quest.assignment", `${transition.id}.plane`),
-        sourcePlanes.map((plane) => ({ id: planeKey(plane), weight: 1, value: plane })),
-      );
-      const npcInstanceId = questDef.giver ? placeNpc(questDef.giver, sourcePlane) : null;
       const flagId = `gate.${transition.id}.questComplete`;
-      const questInstanceId = `quest.${quest}.${planeKey(sourcePlane)}.${transition.id}`;
-      questInstances.push({
-        id: questInstanceId,
-        questId: quest,
-        plane: sourcePlane,
-        npcId: npcInstanceId,
-        flagId,
-      });
-      progressionSources.push({
-        id: `source.quest_reward.${questInstanceId}`,
-        plane: sourcePlane,
-        sourceType: "quest_reward",
-        grants: [`flag:${flagId}`],
-        requirements: [],
-        consumption: false,
-        contentReference: quest,
-        quantity: 1,
-      });
+      const quest = ensureQuest(placement, questId, flagId, sourcePlanes);
+      if ("error" in quest) {
+        return { ok: false, code: "STRUCTURAL_VALIDATION_FAILED", message: quest.error };
+      }
       gates.push({
         id: transition.gateId,
         transitionId: transition.id,
         progressionClass: "quest_flag_gate",
         requiredFlag: flagId,
-        questInstanceId,
+        questInstanceId: quest.id,
       });
     }
   }
 
-  const startShopPlane = STARTING_PLANE;
-  shopInstances.push({
-    id: `shop.${planeKey(startShopPlane)}.0`,
-    shopTypeId: "general_store",
-    plane: startShopPlane,
-    npcInstanceId: placeNpc("shopkeeper", startShopPlane),
-  });
+  const shops = placeCatalogueShops(placement);
+  if (shops.error) {
+    return { ok: false, code: "STRUCTURAL_VALIDATION_FAILED", message: shops.error };
+  }
 
   const olympusBossInstance: OlympusBossInstance = {
     encounterId: "boss_olympus",
@@ -614,14 +543,15 @@ export function generateTopology(
     worldSeed,
     topologyAttempt,
     planeNodes,
-    transitions: [...transitions].sort((left, right) => left.id.localeCompare(right.id)),
-    gates: [...gates].sort((left, right) => left.id.localeCompare(right.id)),
-    progressionSources: [...progressionSources].sort((left, right) => left.id.localeCompare(right.id)),
-    guardianInstances: [...guardianInstances].sort((left, right) => left.id.localeCompare(right.id)),
-    questInstances: [...questInstances].sort((left, right) => left.id.localeCompare(right.id)),
-    npcInstances: [...npcInstances].sort((left, right) => left.id.localeCompare(right.id)),
-    shopInstances: [...shopInstances].sort((left, right) => left.id.localeCompare(right.id)),
+    transitions: sortByStableId(transitions),
+    gates: sortByStableId(gates),
+    progressionSources: sortByStableId(placement.progressionSources),
+    guardianInstances: sortByStableId(placement.guardianInstances),
+    questInstances: sortByStableId(placement.questInstances),
+    npcInstances: sortByStableId(placement.npcInstances),
+    shopInstances: sortByStableId(placement.shopInstances),
     olympusBossInstance,
+    ordinaryEncounterDropsAreSolverVisible: false,
   };
 
   const topology: WorldTopology = {
@@ -656,6 +586,11 @@ export function validateTopology(topology: WorldTopology): string[] {
     }
     ids.add(id);
   };
+  const effectProfiles = new Set<string>(TRANSITION_EFFECT_PROFILES);
+  const transitionById = new Map(topology.transitions.map((row) => [row.id, row]));
+  const npcById = new Map(topology.npcInstances.map((row) => [row.id, row]));
+  const questById = new Map(topology.questInstances.map((row) => [row.id, row]));
+  const guardianById = new Map(topology.guardianInstances.map((row) => [row.id, row]));
   for (const row of topology.transitions) {
     remember(row.id, "transition");
     if (!sharesExactlyOneDimension(row.sourcePlane, row.destinationPlane)) {
@@ -663,6 +598,15 @@ export function validateTopology(topology: WorldTopology): string[] {
     }
     if (!CONTENT_REGISTRY.byId.transition.has(row.archetypeId)) {
       issues.push(`${row.id} unknown archetype ${row.archetypeId}`);
+    }
+    if (!effectProfiles.has(row.transitionEffectProfileId)) {
+      issues.push(`${row.id} unknown effect profile ${row.transitionEffectProfileId}`);
+    }
+    if (row.conditionSetId) {
+      issues.push(`${row.id} dangling conditionSetId ${row.conditionSetId}`);
+    }
+    if (row.gateId && !topology.gates.some((gate) => gate.id === row.gateId)) {
+      issues.push(`${row.id} missing gate ${row.gateId}`);
     }
   }
   for (const row of [...topology.gates, ...topology.progressionSources, ...topology.guardianInstances, ...topology.questInstances, ...topology.npcInstances, ...topology.shopInstances]) {
@@ -678,12 +622,68 @@ export function validateTopology(topology: WorldTopology): string[] {
   if (olympusInbound.size < 2) {
     issues.push(`Olympus has ${olympusInbound.size} inbound source planes`);
   }
-  for (const gate of topology.gates) {
-    if (gate.progressionClass === "guardian_gate" && !gate.guardianInstanceId) {
-      issues.push(`${gate.id} missing guardian`);
+
+  const grantIndex = new Map<string, number>();
+  for (const source of topology.progressionSources) {
+    if (!Number.isFinite(source.quantity) || source.quantity <= 0) {
+      issues.push(`${source.id} non-positive quantity`);
     }
-    if (gate.progressionClass === "quest_flag_gate" && !gate.questInstanceId) {
-      issues.push(`${gate.id} missing quest chain`);
+    for (const grant of source.grants) {
+      const parsed = parseToken(grant);
+      if (!parsed) {
+        issues.push(`${source.id} malformed grant ${grant}`);
+        continue;
+      }
+      grantIndex.set(grant, (grantIndex.get(grant) ?? 0) + source.quantity);
+      const refIssue = tokenReferenceIssue(parsed);
+      if (refIssue) {
+        issues.push(`${source.id} ${refIssue}`);
+      }
+    }
+    for (const requirement of source.requirements) {
+      const parsed = parseToken(requirement);
+      if (!parsed) {
+        issues.push(`${source.id} malformed requirement ${requirement}`);
+        continue;
+      }
+      const refIssue = tokenReferenceIssue(parsed);
+      if (refIssue && parsed.kind !== "flag" && parsed.kind !== "currency") {
+        issues.push(`${source.id} ${refIssue}`);
+      }
+    }
+  }
+
+  for (const gate of topology.gates) {
+    if (!transitionById.has(gate.transitionId)) {
+      issues.push(`${gate.id} references missing transition ${gate.transitionId}`);
+    }
+    if (gate.progressionClass === "guardian_gate") {
+      if (!gate.guardianInstanceId || !guardianById.has(gate.guardianInstanceId)) {
+        issues.push(`${gate.id} missing guardian`);
+      }
+      if (gate.requiredFlag && (grantIndex.get(`flag:${gate.requiredFlag}`) ?? 0) < 1) {
+        issues.push(`${gate.id} missing guardian reward source`);
+      }
+    }
+    if (gate.progressionClass === "quest_flag_gate") {
+      if (!gate.questInstanceId || !questById.has(gate.questInstanceId)) {
+        issues.push(`${gate.id} missing quest chain`);
+      }
+      if (gate.requiredFlag && (grantIndex.get(`flag:${gate.requiredFlag}`) ?? 0) < 1) {
+        issues.push(`${gate.id} missing quest reward source`);
+      }
+    }
+    if (gate.progressionClass === "key_gate" && gate.requiredItemId && (grantIndex.get(`item:${gate.requiredItemId}`) ?? 0) < 1) {
+      issues.push(`${gate.id} missing key source`);
+    }
+    if (gate.progressionClass === "ability_gate" && gate.requiredAbilityId && (grantIndex.get(`ability:${gate.requiredAbilityId}`) ?? 0) < 1) {
+      issues.push(`${gate.id} missing ability source`);
+    }
+    if (gate.progressionClass === "resource_gate") {
+      const available = grantIndex.get(`resource:${gate.requiredResourceId}`) ?? 0;
+      if (!gate.requiredResourceId || available < (gate.requiredQuantity ?? 0)) {
+        issues.push(`${gate.id} insufficient resource sources`);
+      }
     }
     if (gate.requiredQuantity !== undefined && gate.requiredQuantity <= 0) {
       issues.push(`${gate.id} non-positive resource quantity`);
@@ -698,10 +698,16 @@ export function validateTopology(topology: WorldTopology): string[] {
       issues.push(`${gate.id} unknown resource ${gate.requiredResourceId}`);
     }
   }
+
   const npcCounts = new Map<string, number>();
   for (const npc of topology.npcInstances) {
     if (CONTENT_REGISTRY.byId.storyNpc.has(npc.npcId)) {
       npcCounts.set(npc.npcId, (npcCounts.get(npc.npcId) ?? 0) + 1);
+      const story = CONTENT_REGISTRY.byId.storyNpc.get(npc.npcId)!;
+      const archetype = CONTENT_REGISTRY.byId.npcArchetype.get(story.archetypeId);
+      if (archetype && !planeEligibleForArchetype(npc.plane, archetype)) {
+        issues.push(`story NPC ${npc.npcId} placed outside eligible dimensions`);
+      }
     }
   }
   for (const [npcId, count] of npcCounts) {
@@ -709,13 +715,62 @@ export function validateTopology(topology: WorldTopology): string[] {
       issues.push(`story NPC ${npcId} instantiated ${count} times`);
     }
   }
+
+  for (const quest of topology.questInstances) {
+    if (quest.npcId) {
+      const npc = npcById.get(quest.npcId);
+      if (!npc) {
+        issues.push(`${quest.id} missing NPC ${quest.npcId}`);
+      } else if (!planesEqual(npc.plane, quest.plane)) {
+        issues.push(`${quest.id} NPC/quest plane mismatch`);
+      }
+    }
+  }
+
+  for (const source of topology.progressionSources) {
+    if (source.sourceType === "npc_teaching" || source.sourceType === "quest_reward") {
+      const quest = topology.questInstances.find((row) => planesEqual(row.plane, source.plane) && (source.contentReference === row.questId || source.id.includes(row.id)));
+      if (quest?.npcId) {
+        const npc = npcById.get(quest.npcId);
+        if (npc && !planesEqual(npc.plane, source.plane)) {
+          issues.push(`${source.id} source/NPC plane mismatch`);
+        }
+      }
+    }
+  }
+
   if (topology.olympusBossInstance.monsterId !== "olympian_final") {
     issues.push("missing Olympus boss definition");
+  }
+  if (!topology.shopInstances.some((shop) => shop.catalogueShopId === "shop_start" && planesEqual(shop.plane, STARTING_PLANE))) {
+    issues.push("missing catalogue-backed starting shop");
   }
   return issues;
 }
 
-export function hashTopology(topology: Omit<WorldTopology, "topologyHash">): string {
-  const serialized = JSON.stringify(topology);
-  return bytesToHex(sha256(new TextEncoder().encode(serialized)));
+function parseToken(token: string): { kind: string; value: string } | null {
+  const split = token.indexOf(":");
+  if (split <= 0 || split === token.length - 1) {
+    return null;
+  }
+  return { kind: token.slice(0, split), value: token.slice(split + 1) };
 }
+
+function tokenReferenceIssue(parsed: { kind: string; value: string }): string | null {
+  switch (parsed.kind) {
+    case "item":
+    case "resource":
+      return CONTENT_REGISTRY.byId.item.has(parsed.value) ? null : `unknown ${parsed.kind} ${parsed.value}`;
+    case "ability":
+      return CONTENT_REGISTRY.byId.ability.has(parsed.value) ? null : `unknown ability ${parsed.value}`;
+    case "currency":
+      return /^\d+$/.test(parsed.value) && Number(parsed.value) > 0 ? null : `illegal currency amount ${parsed.value}`;
+    case "flag":
+      return parsed.value.length > 0 ? null : "empty flag";
+    default:
+      return `unknown token kind ${parsed.kind}`;
+  }
+}
+
+export { hashTopology } from "./canonical";
+

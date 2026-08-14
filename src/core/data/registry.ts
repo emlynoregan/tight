@@ -1,6 +1,7 @@
 import { GLOBAL_CONSTANTS, type GlobalConstants } from "../model/constants";
 import { enumeratePlanes, type PlanePair } from "../model/plane";
 import type {
+  AbilityAcquisition,
   AbilityDefinition,
   AttackDefinition,
   AtomicEffect,
@@ -8,13 +9,16 @@ import type {
   DimensionDefinition,
   EffectBundle,
   EncounterDefinition,
+  FeatureRecipe,
   HazardDefinition,
   ItemDefinition,
   MonsterSpecies,
   NpcArchetype,
   PlaneFamilyDefinition,
   PlaneOverride,
+  PrimitiveProfile,
   QuestDefinition,
+  ShopInstanceDefinition,
   ShopType,
   StaticFeature,
   StatusDefinition,
@@ -41,10 +45,10 @@ import {
 import { HAZARDS, VISIBILITY_PROFILES } from "./environment";
 import { ITEMS, STARTING_LOADOUT, STAPLE_SHOP_GOODS } from "./items";
 import { AI_PROFILES, BOSSES, MONSTERS, PURSUIT_PROFILES } from "./monsters";
-import { NPC_ARCHETYPES, QUESTS, SHOP_INSTANCES, SHOP_TYPES, STORY_NPCS } from "./npcs";
+import { ABILITY_ACQUISITIONS, NPC_ARCHETYPES, QUESTS, SHOP_INSTANCES, SHOP_TYPES, STORY_NPCS, WORLD_FLAGS } from "./npcs";
 import { GENERATION_VERSIONS, STARTING_PLAYER_STATE, VICTORY } from "./progression";
 import { FEATURE_RECIPES, PRIMITIVE_PROFILES, STATIC_FEATURES, STRUCTURE_TEMPLATES, TILE_TYPES } from "./terrain";
-import { TRANSITION_ARCHETYPES } from "./transitions";
+import { TRANSITION_ARCHETYPES, TRANSITION_EFFECT_PROFILES } from "./transitions";
 
 function indexById<T extends { id: string | number }>(rows: readonly T[]): ReadonlyMap<T["id"], T> {
   return new Map(rows.map((row) => [row.id, row]));
@@ -59,8 +63,8 @@ export interface ContentRegistry {
   readonly tileTypes: readonly TileType[];
   readonly staticFeatures: readonly StaticFeature[];
   readonly structureTemplates: readonly StructureTemplate[];
-  readonly featureRecipes: readonly string[];
-  readonly primitiveProfiles: readonly { id: string }[];
+  readonly featureRecipes: readonly FeatureRecipe[];
+  readonly primitiveProfiles: readonly PrimitiveProfile[];
   readonly attacks: readonly AttackDefinition[];
   readonly statuses: readonly StatusDefinition[];
   readonly atomicEffects: readonly AtomicEffect[];
@@ -87,8 +91,11 @@ export interface ContentRegistry {
   readonly npcArchetypes: readonly NpcArchetype[];
   readonly storyNpcs: readonly StoryNpc[];
   readonly shopTypes: readonly ShopType[];
-  readonly shopInstances: typeof SHOP_INSTANCES;
+  readonly shopInstances: readonly ShopInstanceDefinition[];
   readonly quests: readonly QuestDefinition[];
+  readonly abilityAcquisitions: readonly AbilityAcquisition[];
+  readonly worldFlags: readonly string[];
+  readonly transitionEffectProfiles: readonly string[];
   readonly hazards: readonly HazardDefinition[];
   readonly visibilityProfiles: readonly VisibilityProfile[];
   readonly startingPlayerState: typeof STARTING_PLAYER_STATE;
@@ -112,6 +119,10 @@ export interface ContentRegistry {
     readonly storyNpc: ReadonlyMap<string, StoryNpc>;
     readonly shopType: ReadonlyMap<string, ShopType>;
     readonly quest: ReadonlyMap<string, QuestDefinition>;
+    readonly primitiveProfile: ReadonlyMap<string, PrimitiveProfile>;
+    readonly featureRecipe: ReadonlyMap<string, FeatureRecipe>;
+    readonly abilityAcquisition: ReadonlyMap<string, AbilityAcquisition>;
+    readonly shopInstance: ReadonlyMap<string, ShopInstanceDefinition>;
   };
 }
 
@@ -155,6 +166,9 @@ export function createContentRegistry(): ContentRegistry {
     shopTypes: SHOP_TYPES,
     shopInstances: SHOP_INSTANCES,
     quests: QUESTS,
+    abilityAcquisitions: ABILITY_ACQUISITIONS,
+    worldFlags: WORLD_FLAGS,
+    transitionEffectProfiles: TRANSITION_EFFECT_PROFILES,
     hazards: HAZARDS,
     visibilityProfiles: VISIBILITY_PROFILES,
     startingPlayerState: STARTING_PLAYER_STATE,
@@ -178,6 +192,10 @@ export function createContentRegistry(): ContentRegistry {
       storyNpc: indexById(STORY_NPCS),
       shopType: indexById(SHOP_TYPES),
       quest: indexById(QUESTS),
+      primitiveProfile: indexById(PRIMITIVE_PROFILES),
+      featureRecipe: indexById(FEATURE_RECIPES),
+      abilityAcquisition: new Map(ABILITY_ACQUISITIONS.map((row) => [row.abilityId, row])),
+      shopInstance: indexById(SHOP_INSTANCES),
     },
   };
 }

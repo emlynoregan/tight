@@ -2,6 +2,7 @@ import type { ContentRegistry } from "./registry";
 import { CONTENT_REGISTRY } from "./registry";
 import { ENCOUNTER_ROLES, PLACEMENT_PATTERNS } from "./encounters";
 import { AI_PROFILES } from "./monsters";
+import type { PrimitiveProfile } from "../model/content-types";
 
 export interface ValidationIssue {
   readonly path: string;
@@ -27,6 +28,43 @@ function requireRef(
 ): void {
   if (!present) {
     issues.push({ path, message: `dangling reference ${id}` });
+  }
+}
+
+function validatePrimitiveProfile(profile: PrimitiveProfile, issues: ValidationIssue[]): void {
+  const path = `primitiveProfiles.${profile.id}`;
+  switch (profile.kind) {
+    case "blob":
+      if (profile.areaMin > profile.areaMax || profile.areaMin < 1) {
+        issues.push({ path, message: "illegal blob area range" });
+      }
+      break;
+    case "line":
+    case "path":
+      if (profile.widthMin > profile.widthMax || profile.widthMin < 1) {
+        issues.push({ path, message: `illegal ${profile.kind} width range` });
+      }
+      break;
+    case "rectangle":
+      if (profile.widthMin > profile.widthMax || profile.heightMin > profile.heightMax) {
+        issues.push({ path, message: "illegal rectangle range" });
+      }
+      break;
+    case "strip":
+      if (profile.width < 1 || profile.lengthMin > profile.lengthMax) {
+        issues.push({ path, message: "illegal strip range" });
+      }
+      break;
+    case "cluster":
+      if (profile.countMin > profile.countMax || profile.radius < 1) {
+        issues.push({ path, message: "illegal cluster range" });
+      }
+      break;
+    case "scatter":
+      if (profile.minSpacing < 1) {
+        issues.push({ path, message: "illegal scatter spacing" });
+      }
+      break;
   }
 }
 
@@ -182,6 +220,9 @@ export function validateContentRegistry(
     for (const itemId of [...shop.stapleItemIds, ...shop.limitedPoolItemIds]) {
       requireRef(issues, `shopTypes.${shop.id}`, itemId, registry.byId.item.has(itemId));
     }
+    if (shop.limitedPickCount < 0 || shop.maxRareExtras < 0) {
+      issues.push({ path: `shopTypes.${shop.id}`, message: "negative shop generation counts" });
+    }
   }
 
   for (const instance of registry.shopInstances) {
@@ -189,8 +230,14 @@ export function validateContentRegistry(
     if (instance.npcId) {
       requireRef(issues, `shopInstances.${instance.id}.npc`, instance.npcId, registry.byId.storyNpc.has(instance.npcId));
     }
-    for (const itemId of instance.specialStock) {
-      requireRef(issues, `shopInstances.${instance.id}.stock`, itemId, registry.byId.item.has(itemId));
+    if (instance.anchorNpcId) {
+      requireRef(issues, `shopInstances.${instance.id}.anchorNpc`, instance.anchorNpcId, registry.byId.storyNpc.has(instance.anchorNpcId));
+    }
+    for (const stock of instance.specialStock) {
+      requireRef(issues, `shopInstances.${instance.id}.stock`, stock.itemId, registry.byId.item.has(stock.itemId));
+      if (stock.priceOverride !== null && stock.priceOverride < 0) {
+        issues.push({ path: `shopInstances.${instance.id}.stock.${stock.itemId}`, message: "negative price override" });
+      }
     }
   }
 
@@ -198,9 +245,116 @@ export function validateContentRegistry(
     requireRef(issues, `storyNpcs.${npc.id}`, npc.archetypeId, registry.byId.npcArchetype.has(npc.archetypeId));
   }
 
+  for (const archetype of registry.npcArchetypes) {
+    if (archetype.dimensionMin < 0 || archetype.dimensionMax > 15 || archetype.dimensionMin > archetype.dimensionMax) {
+      issues.push({ path: `npcArchetypes.${archetype.id}`, message: "illegal dimension eligibility range" });
+    }
+  }
+
+  const authoredFlags = new Set(registry.worldFlags);
   for (const quest of registry.quests) {
     if (quest.giver) {
       requireRef(issues, `quests.${quest.id}.giver`, quest.giver, registry.byId.storyNpc.has(quest.giver));
+    }
+    if (quest.rewards.apEventId) {
+      requireRef(
+        issues,
+        `quests.${quest.id}.rewards.apEventId`,
+        quest.rewards.apEventId,
+        registry.apRewardEvents.some((event) => event.id === quest.rewards.apEventId),
+      );
+    }
+    for (const abilityId of quest.rewards.learnAbilityIds) {
+      requireRef(issues, `quests.${quest.id}.rewards.learnAbilityIds`, abilityId, registry.byId.ability.has(abilityId));
+    }
+    for (const flagId of quest.rewards.flagIds) {
+      if (!authoredFlags.has(flagId)) {
+        issues.push({ path: `quests.${quest.id}.rewards.flagIds`, message: `unknown flag ${flagId}` });
+      }
+    }
+    if (
+      quest.rewards.coinMin !== undefined &&
+      quest.rewards.coinMax !== undefined &&
+      quest.rewards.coinMin > quest.rewards.coinMax
+    ) {
+      issues.push({ path: `quests.${quest.id}.rewards.coin`, message: "coinMin greater than coinMax" });
+    }
+    for (const [index, objective] of quest.objectives.entries()) {
+      if (objective.type === "defeat_encounter") {
+        const known =
+          registry.guardianEncounters.some((row) => row.id === objective.encounterId) ||
+          objective.encounterId === registry.bossEncounter.id;
+        requireRef(issues, `quests.${quest.id}.objectives[${index}]`, objective.encounterId, known);
+      }
+      if (objective.type === "reach_dimension" && (objective.dimension < 0 || objective.dimension > 15)) {
+        issues.push({ path: `quests.${quest.id}.objectives[${index}]`, message: `illegal dimension ${objective.dimension}` });
+      }
+    }
+  }
+
+  for (const acquisition of registry.abilityAcquisitions) {
+    requireRef(issues, `abilityAcquisitions.${acquisition.abilityId}`, acquisition.abilityId, registry.byId.ability.has(acquisition.abilityId));
+    if (acquisition.questId) {
+      requireRef(issues, `abilityAcquisitions.${acquisition.abilityId}.questId`, acquisition.questId, registry.byId.quest.has(acquisition.questId));
+    }
+    if (acquisition.giverNpcId) {
+      requireRef(issues, `abilityAcquisitions.${acquisition.abilityId}.giverNpcId`, acquisition.giverNpcId, registry.byId.storyNpc.has(acquisition.giverNpcId));
+    }
+    if (acquisition.fixedRewardId) {
+      requireRef(
+        issues,
+        `abilityAcquisitions.${acquisition.abilityId}.fixedRewardId`,
+        acquisition.fixedRewardId,
+        registry.fixedRewards.some((reward) => reward.id === acquisition.fixedRewardId),
+      );
+    }
+    if (acquisition.prerequisiteEncounterId) {
+      requireRef(
+        issues,
+        `abilityAcquisitions.${acquisition.abilityId}.prerequisiteEncounterId`,
+        acquisition.prerequisiteEncounterId,
+        registry.guardianEncounters.some((row) => row.id === acquisition.prerequisiteEncounterId),
+      );
+    }
+  }
+
+  uniqueIds("primitiveProfiles", registry.primitiveProfiles.map((row) => row.id), issues);
+  uniqueIds("featureRecipes", registry.featureRecipes.map((row) => row.id), issues);
+  for (const profile of registry.primitiveProfiles) {
+    validatePrimitiveProfile(profile, issues);
+  }
+  for (const recipe of registry.featureRecipes) {
+    for (const [index, step] of recipe.steps.entries()) {
+      if (step.primitiveId) {
+        requireRef(issues, `featureRecipes.${recipe.id}.steps[${index}]`, step.primitiveId, registry.byId.primitiveProfile.has(step.primitiveId));
+      }
+      if (step.templateId) {
+        requireRef(
+          issues,
+          `featureRecipes.${recipe.id}.steps[${index}]`,
+          step.templateId,
+          registry.structureTemplates.some((template) => template.id === step.templateId),
+        );
+      }
+      if (step.featureId) {
+        requireRef(issues, `featureRecipes.${recipe.id}.steps[${index}]`, step.featureId, registry.byId.feature.has(step.featureId));
+      }
+      if (step.tileId) {
+        requireRef(issues, `featureRecipes.${recipe.id}.steps[${index}]`, step.tileId, registry.byId.tile.has(step.tileId));
+      }
+    }
+  }
+
+  for (const family of registry.planeFamilies) {
+    requireRef(issues, `planeFamilies.${family.id}.visibility`, family.defaultVisibility, registry.visibilityProfiles.some((profile) => profile.id === family.defaultVisibility));
+    if (family.walkableTargetMin > family.walkableTargetMax) {
+      issues.push({ path: `planeFamilies.${family.id}.walkable`, message: "min greater than max" });
+    }
+    if (family.majorRegionsMin > family.majorRegionsMax || family.structuresMin > family.structuresMax) {
+      issues.push({ path: `planeFamilies.${family.id}`, message: "illegal generation range" });
+    }
+    if (family.hazardDensityMinPercent > family.hazardDensityMaxPercent) {
+      issues.push({ path: `planeFamilies.${family.id}.hazardDensity`, message: "min greater than max" });
     }
   }
 
@@ -214,10 +368,6 @@ export function validateContentRegistry(
     if (tile.hazardId) {
       requireRef(issues, `tileTypes.${tile.id}.hazardId`, tile.hazardId, registry.byId.hazard.has(tile.hazardId));
     }
-  }
-
-  for (const family of registry.planeFamilies) {
-    requireRef(issues, `planeFamilies.${family.id}.visibility`, family.defaultVisibility, registry.visibilityProfiles.some((profile) => profile.id === family.defaultVisibility));
   }
 
   const loadout = registry.startingLoadout;

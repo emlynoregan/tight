@@ -64,6 +64,7 @@ export interface ProgressionSource {
   readonly contentReference: CatalogueId;
   readonly quantity: number;
   readonly unlimited?: boolean;
+  readonly price?: number;
 }
 
 export interface GuardianInstance {
@@ -71,7 +72,7 @@ export interface GuardianInstance {
   readonly encounterId: CatalogueId;
   readonly monsterId: CatalogueId;
   readonly plane: PlanePair;
-  readonly gatedTransitionId: CatalogueId;
+  readonly gatedTransitionId: CatalogueId | null;
 }
 
 export interface QuestInstance {
@@ -79,7 +80,7 @@ export interface QuestInstance {
   readonly questId: CatalogueId;
   readonly plane: PlanePair;
   readonly npcId: CatalogueId | null;
-  readonly flagId: CatalogueId;
+  readonly flagIds: readonly CatalogueId[];
 }
 
 export interface NpcInstance {
@@ -93,6 +94,7 @@ export interface ShopInstance {
   readonly shopTypeId: CatalogueId;
   readonly plane: PlanePair;
   readonly npcInstanceId: CatalogueId | null;
+  readonly catalogueShopId: CatalogueId;
 }
 
 export interface OlympusBossInstance {
@@ -115,6 +117,7 @@ export interface WorldTopology {
   readonly npcInstances: readonly NpcInstance[];
   readonly shopInstances: readonly ShopInstance[];
   readonly olympusBossInstance: OlympusBossInstance;
+  readonly ordinaryEncounterDropsAreSolverVisible: boolean;
   readonly topologyHash: string;
 }
 

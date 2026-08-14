@@ -1,4 +1,12 @@
-import type { NpcArchetype, QuestDefinition, ShopType, StoryNpc } from "../model/content-types";
+import type {
+  AbilityAcquisition,
+  NpcArchetype,
+  QuestDefinition,
+  QuestRewards,
+  ShopInstanceDefinition,
+  ShopType,
+  StoryNpc,
+} from "../model/content-types";
 
 export const NPC_ARCHETYPES: readonly NpcArchetype[] = [
   { id: "villager", roles: ["villager"], dimensionMin: 0, dimensionMax: 3, behaviour: "stationary" },
@@ -33,25 +41,33 @@ export const NAME_POOLS = {
   divine_names: ["Aelia", "Cael", "Ilyon", "Seraph", "Theon", "Vesta"],
 } as const;
 
+function shopType(
+  id: string,
+  stapleItemIds: readonly string[],
+  limitedPoolItemIds: readonly string[],
+): ShopType {
+  return { id, stapleItemIds, limitedPoolItemIds, limitedPickCount: 2, maxRareExtras: 1 };
+}
+
 export const SHOP_TYPES: readonly ShopType[] = [
-  { id: "general_store", stapleItemIds: ["healing_herb", "antidote"], limitedPoolItemIds: ["club", "sword", "dagger", "traveller_clothes", "leather_armour"] },
-  { id: "dungeon_supplier", stapleItemIds: ["healing_herb", "antidote", "cooling_salve"], limitedPoolItemIds: ["miner_helmet", "plate_armour", "greater_healing_potion"] },
-  { id: "arcane_dealer", stapleItemIds: ["greater_healing_potion"], limitedPoolItemIds: ["spell_lattice", "arcane_robes", "dimensional_stabiliser", "warding_tome"] },
-  { id: "spirit_medium_shop", stapleItemIds: ["healing_herb"], limitedPoolItemIds: ["ghost_veil", "spirit_mirror", "soul_bell"] },
-  { id: "space_trader", stapleItemIds: ["greater_healing_potion"], limitedPoolItemIds: ["vacuum_suit", "star_helm", "still_stone"] },
-  { id: "void_broker_shop", stapleItemIds: ["light_orb"], limitedPoolItemIds: ["void_skin", "lantern_of_nothing", "dimensional_stabiliser"] },
-  { id: "divine_vendor", stapleItemIds: ["greater_healing_potion"], limitedPoolItemIds: ["divine_mantle"] },
+  shopType("general_store", ["healing_herb", "antidote"], ["club", "sword", "dagger", "traveller_clothes", "leather_armour"]),
+  shopType("dungeon_supplier", ["healing_herb", "antidote", "cooling_salve"], ["miner_helmet", "plate_armour", "greater_healing_potion"]),
+  shopType("arcane_dealer", ["greater_healing_potion"], ["spell_lattice", "arcane_robes", "dimensional_stabiliser", "warding_tome"]),
+  shopType("spirit_medium_shop", ["healing_herb"], ["ghost_veil", "spirit_mirror", "soul_bell"]),
+  shopType("space_trader", ["greater_healing_potion"], ["vacuum_suit", "star_helm", "still_stone"]),
+  shopType("void_broker_shop", ["light_orb"], ["void_skin", "lantern_of_nothing", "dimensional_stabiliser"]),
+  shopType("divine_vendor", ["greater_healing_potion"], ["divine_mantle"]),
 ];
 
-export const SHOP_INSTANCES = [
-  { id: "shop_start", shopTypeId: "general_store", npcId: null, specialStock: [] as const },
-  { id: "shop_torren", shopTypeId: "dungeon_supplier", npcId: null, specialStock: ["miner_helmet"] },
-  { id: "shop_vesa", shopTypeId: "arcane_dealer", npcId: "vesa_mage", specialStock: ["spell_lattice"] },
-  { id: "shop_enid", shopTypeId: "spirit_medium_shop", npcId: "enid_medium", specialStock: ["soul_bell"] },
-  { id: "shop_orik", shopTypeId: "space_trader", npcId: "orik_spacer", specialStock: ["still_stone"] },
-  { id: "shop_nox", shopTypeId: "void_broker_shop", npcId: "nox_broker", specialStock: ["lantern_of_nothing"] },
-  { id: "shop_aelia", shopTypeId: "divine_vendor", npcId: "aelia_guide", specialStock: ["olympian_blade"] },
-] as const;
+export const SHOP_INSTANCES: readonly ShopInstanceDefinition[] = [
+  { id: "shop_start", shopTypeId: "general_store", npcId: null, anchorNpcId: null, onStartingPlane: true, specialStock: [] },
+  { id: "shop_torren", shopTypeId: "dungeon_supplier", npcId: null, anchorNpcId: "torren_miner", onStartingPlane: false, specialStock: [{ itemId: "miner_helmet", priceOverride: null }] },
+  { id: "shop_vesa", shopTypeId: "arcane_dealer", npcId: "vesa_mage", anchorNpcId: "vesa_mage", onStartingPlane: false, specialStock: [{ itemId: "spell_lattice", priceOverride: null }] },
+  { id: "shop_enid", shopTypeId: "spirit_medium_shop", npcId: "enid_medium", anchorNpcId: "enid_medium", onStartingPlane: false, specialStock: [{ itemId: "soul_bell", priceOverride: null }] },
+  { id: "shop_orik", shopTypeId: "space_trader", npcId: "orik_spacer", anchorNpcId: "orik_spacer", onStartingPlane: false, specialStock: [{ itemId: "still_stone", priceOverride: null }] },
+  { id: "shop_nox", shopTypeId: "void_broker_shop", npcId: "nox_broker", anchorNpcId: "nox_broker", onStartingPlane: false, specialStock: [{ itemId: "lantern_of_nothing", priceOverride: null }] },
+  { id: "shop_aelia", shopTypeId: "divine_vendor", npcId: null, anchorNpcId: "aelia_guide", onStartingPlane: false, specialStock: [{ itemId: "olympian_blade", priceOverride: 120 }] },
+];
 
 export const WORLD_FLAGS = [
   "met_mara",
@@ -67,17 +83,119 @@ export const WORLD_FLAGS = [
   "victory",
 ] as const;
 
+function rewards(
+  flagIds: readonly string[],
+  learnAbilityIds: readonly string[] = [],
+  extras: Partial<QuestRewards> = {},
+): QuestRewards {
+  return {
+    flagIds,
+    learnAbilityIds,
+    apEventId: extras.apEventId ?? null,
+    bindsGeneratedGuardianGate: extras.bindsGeneratedGuardianGate ?? false,
+    ...(extras.coinMin !== undefined ? { coinMin: extras.coinMin } : {}),
+    ...(extras.coinMax !== undefined ? { coinMax: extras.coinMax } : {}),
+  };
+}
+
 export const QUESTS: readonly QuestDefinition[] = [
-  { id: "q_first_crack", name: "The First Crack", giver: "mara_guide", major: false },
-  { id: "q_stone_warden", name: "The Warden Below", giver: "torren_miner", major: true },
-  { id: "q_arcane_gate", name: "A Door Made of Spell", giver: "vesa_mage", major: true },
-  { id: "q_spirit_path", name: "The Road That Follows", giver: "enid_medium", major: true },
-  { id: "q_star_road", name: "Across the Black", giver: "orik_spacer", major: true },
-  { id: "q_abyss_gate", name: "The Last Dark Door", giver: "nox_broker", major: true },
-  { id: "q_olympus", name: "Olympus", giver: "aelia_guide", major: true },
-  { id: "oq_lost_cache", name: "Lost Cache", giver: null, major: false },
-  { id: "oq_stranded_traveller", name: "Stranded Traveller", giver: null, major: false },
-  { id: "oq_resource_trade", name: "Resource Trade", giver: null, major: false },
+  {
+    id: "q_first_crack",
+    name: "The First Crack",
+    giver: "mara_guide",
+    major: false,
+    usableAsProgressionGate: false,
+    objectives: [{ type: "speak_to_giver" }, { type: "reach_dimension", dimension: 4 }],
+    rewards: rewards(["stone_route_revealed"]),
+  },
+  {
+    id: "q_stone_warden",
+    name: "The Warden Below",
+    giver: "torren_miner",
+    major: true,
+    usableAsProgressionGate: true,
+    objectives: [{ type: "defeat_encounter", encounterId: "guardian_stone" }],
+    rewards: rewards(["stone_guardian_dead"], [], { apEventId: "ap_guardian_defeat", bindsGeneratedGuardianGate: true }),
+  },
+  {
+    id: "q_arcane_gate",
+    name: "A Door Made of Spell",
+    giver: "vesa_mage",
+    major: true,
+    usableAsProgressionGate: true,
+    objectives: [{ type: "speak_to_giver" }],
+    rewards: rewards(["arcane_route_open"], ["arcane_gate"]),
+  },
+  {
+    id: "q_spirit_path",
+    name: "The Road That Follows",
+    giver: "enid_medium",
+    major: true,
+    usableAsProgressionGate: true,
+    objectives: [{ type: "defeat_encounter", encounterId: "guardian_spirit" }],
+    rewards: rewards(["spirit_route_open"], ["dream_step"], { apEventId: "ap_guardian_defeat", bindsGeneratedGuardianGate: true }),
+  },
+  {
+    id: "q_star_road",
+    name: "Across the Black",
+    giver: "orik_spacer",
+    major: true,
+    usableAsProgressionGate: true,
+    objectives: [{ type: "defeat_encounter", encounterId: "guardian_space" }],
+    rewards: rewards(["space_route_open", "void_route_open"], [], { apEventId: "ap_guardian_defeat", bindsGeneratedGuardianGate: true }),
+  },
+  {
+    id: "q_abyss_gate",
+    name: "The Last Dark Door",
+    giver: "nox_broker",
+    major: true,
+    usableAsProgressionGate: true,
+    objectives: [{ type: "defeat_encounter", encounterId: "guardian_void" }],
+    rewards: rewards(["divine_route_open"], ["void_slip"], { apEventId: "ap_guardian_defeat", bindsGeneratedGuardianGate: true }),
+  },
+  {
+    id: "q_olympus",
+    name: "Olympus",
+    giver: "aelia_guide",
+    major: true,
+    usableAsProgressionGate: false,
+    objectives: [{ type: "defeat_encounter", encounterId: "boss_olympus" }],
+    rewards: rewards(["final_boss_dead", "victory"]),
+  },
+  {
+    id: "oq_lost_cache",
+    name: "Lost Cache",
+    giver: null,
+    major: false,
+    usableAsProgressionGate: false,
+    objectives: [{ type: "recover_and_return" }],
+    rewards: rewards([], [], { coinMin: 8, coinMax: 15 }),
+  },
+  {
+    id: "oq_stranded_traveller",
+    name: "Stranded Traveller",
+    giver: null,
+    major: false,
+    usableAsProgressionGate: false,
+    objectives: [{ type: "activate_or_deliver" }],
+    rewards: rewards([]),
+  },
+  {
+    id: "oq_resource_trade",
+    name: "Resource Trade",
+    giver: null,
+    major: false,
+    usableAsProgressionGate: false,
+    objectives: [{ type: "deliver_resources", countMin: 1, countMax: 3 }],
+    rewards: rewards([]),
+  },
+];
+
+export const ABILITY_ACQUISITIONS: readonly AbilityAcquisition[] = [
+  { abilityId: "arcane_gate", questId: "q_arcane_gate", giverNpcId: "vesa_mage", prerequisiteEncounterId: null, fixedRewardId: "reward_arcane_gate" },
+  { abilityId: "dream_step", questId: "q_spirit_path", giverNpcId: "enid_medium", prerequisiteEncounterId: "guardian_spirit", fixedRewardId: "reward_dream_step" },
+  { abilityId: "void_slip", questId: "q_abyss_gate", giverNpcId: "nox_broker", prerequisiteEncounterId: "guardian_void", fixedRewardId: "reward_void_slip" },
+  { abilityId: "divine_passage", questId: null, giverNpcId: "aelia_guide", prerequisiteEncounterId: null, fixedRewardId: "reward_divine_passage" },
 ];
 
 export const DIALOGUE_ROOTS = [
