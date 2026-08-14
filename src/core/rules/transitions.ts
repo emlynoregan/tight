@@ -277,6 +277,19 @@ function nearestLegalArrival(
   return null;
 }
 
+function placeExactThenAdjacent(
+  destPlane: PlaneBase,
+  actors: readonly ActorState[],
+  origin: MapCoordinate,
+  moverId: string,
+  save: SaveState,
+): MapCoordinate | null {
+  if (canOccupy(destPlane, actors, origin, moverId, save)) {
+    return origin;
+  }
+  return adjacentArrival(destPlane, actors, origin, moverId, save);
+}
+
 function placeByArrivalRule(
   destPlane: PlaneBase,
   actors: readonly ActorState[],
@@ -285,16 +298,18 @@ function placeByArrivalRule(
   save: SaveState,
   rule: PursuitArrivalRule,
 ): MapCoordinate | null {
-  if (rule === "adjacent_nesw") {
-    return adjacentArrival(destPlane, actors, origin, moverId, save);
-  }
   if (rule === "nearest_legal") {
     return nearestLegalArrival(destPlane, actors, origin, moverId, save);
   }
-  if (!canOccupy(destPlane, actors, origin, moverId, save)) {
-    return null;
+  if (rule === "adjacent_nesw") {
+    return adjacentArrival(destPlane, actors, origin, moverId, save);
   }
-  return origin;
+  if (rule === "exact") {
+    return canOccupy(destPlane, actors, origin, moverId, save) ? origin : null;
+  }
+  // Ordinary v1 pursuit: exact tile, then URDL adjacent only. World transits
+  // still require the exact cell in activateTransition.
+  return placeExactThenAdjacent(destPlane, actors, origin, moverId, save);
 }
 
 function recordDiscovery(save: SaveState, dest: PlanePair, events: TickEvent[]): void {
@@ -558,30 +573,6 @@ function resolveHandoff(runtime: GameRuntime, handoff: PursuitHandoff, events: T
   events.push({ type: "pursuit_arrived", actorId: actor.id, targetId: handoff.transitionId, x: arrival.x, y: arrival.y });
 }
 
-function retargetOrCancelStaleHandoffs(runtime: GameRuntime, pending: PendingPlayerTransition, events: TickEvent[]): void {
-  const kept: PursuitHandoff[] = [];
-  for (const handoff of runtime.save.pursuits) {
-    if (!planesEqual(handoff.destinationPlane, pending.sourcePlane)) {
-      kept.push(handoff);
-      continue;
-    }
-    const actor = runtime.save.actors.find((row) => row.id === handoff.actorId);
-    const profile = actor ? pursuitProfile(actor) : undefined;
-    if (profile && !profile.sameTransitionRequired) {
-      handoff.destinationPlane = { a: pending.destinationPlane.a, b: pending.destinationPlane.b };
-      handoff.transitionId = pending.transitionId;
-      handoff.arrivalX = pending.arrival.x;
-      handoff.arrivalY = pending.arrival.y;
-      handoff.remainingDelay = profile.delay;
-      events.push({ type: "pursuit_chained", actorId: handoff.actorId, targetId: pending.transitionId });
-      kept.push(handoff);
-      continue;
-    }
-    events.push({ type: "pursuit_cancelled", actorId: handoff.actorId, targetId: handoff.transitionId });
-  }
-  runtime.save.pursuits = kept;
-}
-
 export function evaluatePursuitHandoffs(runtime: GameRuntime, events: TickEvent[]): void {
   const pending = runtime.pendingPlayerTransition;
   runtime.pendingPlayerTransition = null;
@@ -600,7 +591,7 @@ export function evaluatePursuitHandoffs(runtime: GameRuntime, events: TickEvent[
   }
   runtime.save.pursuits = remaining;
   if (pending) {
-    retargetOrCancelStaleHandoffs(runtime, pending, events);
+    cancelHandoffsLeaving(runtime.save, pending.sourcePlane, events);
     createHandoffs(runtime, pending, events);
   }
 }

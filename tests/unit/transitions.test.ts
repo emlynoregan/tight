@@ -32,7 +32,12 @@ function queue(runtime: GameRuntime, action: IntentionalAction) {
   return applyPlayerCommand(runtime, { type: "queue", action });
 }
 
-function grassPlane(plane: PlanePair, family: FamilyId, fixtures: PlaneBase["transitionFixtures"] = []): PlaneBase {
+function grassPlane(
+  plane: PlanePair,
+  family: FamilyId,
+  fixtures: PlaneBase["transitionFixtures"] = [],
+  wraps = false,
+): PlaneBase {
   const features = emptyGrid<string | null>(null);
   for (const fixture of fixtures) {
     features[fixture.y]![fixture.x] = "transition_fixture";
@@ -42,7 +47,7 @@ function grassPlane(plane: PlanePair, family: FamilyId, fixtures: PlaneBase["tra
     worldSeed: "0",
     plane,
     family,
-    wraps: false,
+    wraps,
     terrain: emptyGrid("grass"),
     features,
     namedPoints: [],
@@ -288,90 +293,218 @@ describe("discovery", () => {
 });
 
 describe("pursuit handoff", () => {
-  function chaseSetup() {
+  function chaseSetup(speciesId = "wolf", destWraps = false) {
     const runtime = newGame();
     const player = playerActor(runtime);
     player.x = 6;
     player.y = 5;
     const source = grassPlane(START, "aboveground", [{ transitionId: "t.door", x: 7, y: 5 }]);
-    const dest = grassPlane(NEXT, "inside");
-    const row = transitionRow("t.door", START, NEXT);
+    const dest = grassPlane(NEXT, "inside", [], destWraps);
+    const row = transitionRow("t.door", START, NEXT, {
+      coordinateMode: "source_axis_copy",
+      transitionEffectProfileId: "copied_gate",
+    });
     installWorld(runtime, source, dest, [row]);
-    const wolf = createMonsterActor("wolf.1", "wolf", START, 5, 5);
-    wolf.aiState = "chasing";
-    runtime.save.actors.push(wolf);
-    runtime.scriptedActions.set("wolf.1", { type: "wait" });
-    return { runtime, player, wolf, row };
+    const hunter = createMonsterActor(`${speciesId}.1`, speciesId, START, 5, 5);
+    hunter.aiState = "chasing";
+    runtime.save.actors.push(hunter);
+    runtime.scriptedActions.set(hunter.id, { type: "wait" });
+    return { runtime, player, hunter, row };
   }
 
-  it("creates a handoff, arrives after the profile delay, and fails when the arrival tile is occupied", () => {
-    const blocked = chaseSetup();
-    queue(blocked.runtime, { type: "interact", targetId: "transition_fixture", targetX: 7, targetY: 5 });
-    const left = tick(blocked.runtime);
-    expect(left.events.some((event) => event.type === "pursuit_started" && event.actorId === "wolf.1")).toBe(true);
-    expect(blocked.runtime.save.pursuits).toHaveLength(1);
-    expect(blocked.runtime.save.pursuits[0]?.remainingDelay).toBe(2);
-    expect(blocked.wolf.plane).toEqual(START);
+  function leaveThroughDoor(runtime: GameRuntime) {
+    queue(runtime, { type: "interact", targetId: "transition_fixture", targetX: 7, targetY: 5 });
+    return tick(runtime);
+  }
 
-    tick(blocked.runtime);
-    expect(blocked.runtime.save.pursuits[0]?.remainingDelay).toBe(1);
-    const occupied = tick(blocked.runtime);
-    expect(occupied.events.some((event) => event.type === "pursuit_cancelled")).toBe(true);
-    expect(blocked.wolf.plane).toEqual(START);
-    expect(blocked.runtime.save.pursuits).toHaveLength(0);
+  it("arrives on the exact tile when it is free", () => {
+    const setup = chaseSetup();
+    const arrival = arrivalCellFor(setup.runtime, setup.row, setup.player, { x: 7, y: 5 });
+    const left = leaveThroughDoor(setup.runtime);
+    expect(left.events.some((event) => event.type === "pursuit_started" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(setup.runtime.save.pursuits).toHaveLength(1);
+    expect(setup.runtime.save.pursuits[0]?.remainingDelay).toBe(2);
+    expect(setup.hunter.plane).toEqual(START);
 
-    const open = chaseSetup();
-    const openArrival = arrivalCellFor(open.runtime, open.row, open.player, { x: 7, y: 5 });
-    queue(open.runtime, { type: "interact", targetId: "transition_fixture", targetX: 7, targetY: 5 });
-    tick(open.runtime);
-    const landed = playerActor(open.runtime);
-    queue(open.runtime, { type: "move", direction: landed.x < 15 ? "east" : "west" });
-    tick(open.runtime);
-    queue(open.runtime, { type: "wait" });
-    const arrived = tick(open.runtime);
-    expect(arrived.events.some((event) => event.type === "pursuit_arrived" && event.actorId === "wolf.1")).toBe(true);
-    expect(open.wolf.plane).toEqual(NEXT);
-    expect(open.wolf.x).toBe(openArrival.x);
-    expect(open.wolf.y).toBe(openArrival.y);
+    const landed = playerActor(setup.runtime);
+    queue(setup.runtime, { type: "move", direction: landed.x < 15 ? "east" : "west" });
+    tick(setup.runtime);
+    expect(setup.runtime.save.pursuits[0]?.remainingDelay).toBe(1);
+    const arrived = tick(setup.runtime);
+    expect(arrived.events.some((event) => event.type === "pursuit_arrived" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(setup.hunter.plane).toEqual(NEXT);
+    expect(setup.hunter.x).toBe(arrival.x);
+    expect(setup.hunter.y).toBe(arrival.y);
+    expect(setup.hunter.aiState).toBe("chasing");
   });
 
-  it("cancels by default if the player leaves before arrival", () => {
+  it("arrives north when the exact tile is occupied and north is legal", () => {
     const setup = chaseSetup();
-    const second = transitionRow("t.2", NEXT, THIRD);
-    setup.runtime.topology = { ...setup.runtime.topology, transitions: [...setup.runtime.topology.transitions, second] };
+    const arrival = arrivalCellFor(setup.runtime, setup.row, setup.player, { x: 7, y: 5 });
+    leaveThroughDoor(setup.runtime);
+    tick(setup.runtime);
+    const arrived = tick(setup.runtime);
+    expect(arrived.events.some((event) => event.type === "pursuit_arrived" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(setup.hunter).toMatchObject({ plane: NEXT, x: arrival.x, y: arrival.y - 1 });
+  });
+
+  it("arrives east when north is blocked, proving URDL order", () => {
+    const setup = chaseSetup();
+    const arrival = arrivalCellFor(setup.runtime, setup.row, setup.player, { x: 7, y: 5 });
+    const north = createMonsterActor("block.north", "rat", NEXT, arrival.x, arrival.y - 1);
+    setup.runtime.save.actors.push(north);
+    leaveThroughDoor(setup.runtime);
+    tick(setup.runtime);
+    const arrived = tick(setup.runtime);
+    expect(arrived.events.some((event) => event.type === "pursuit_arrived")).toBe(true);
+    expect(setup.hunter).toMatchObject({ plane: NEXT, x: arrival.x + 1, y: arrival.y });
+  });
+
+  it("cancels when the exact tile and all four adjacent cells are illegal or occupied", () => {
+    const setup = chaseSetup();
+    const arrival = arrivalCellFor(setup.runtime, setup.row, setup.player, { x: 7, y: 5 });
+    for (const [id, x, y] of [
+      ["block.n", arrival.x, arrival.y - 1],
+      ["block.e", arrival.x + 1, arrival.y],
+      ["block.s", arrival.x, arrival.y + 1],
+      ["block.w", arrival.x - 1, arrival.y],
+    ] as const) {
+      setup.runtime.save.actors.push(createMonsterActor(id, "rat", NEXT, x, y));
+    }
+    leaveThroughDoor(setup.runtime);
+    tick(setup.runtime);
+    const failed = tick(setup.runtime);
+    expect(failed.events.some((event) => event.type === "pursuit_cancelled" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(setup.hunter.plane).toEqual(START);
+    expect(setup.hunter.x).toBe(5);
+    expect(setup.hunter.y).toBe(5);
+    expect(setup.runtime.save.pursuits).toHaveLength(0);
+  });
+
+  it("uses wrapping occupancy for the URDL fallback", () => {
+    const setup = chaseSetup("wolf", true);
+    setup.player.x = 0;
+    setup.player.y = 8;
+    setup.hunter.x = 0;
+    setup.hunter.y = 7;
+    const source = grassPlane(START, "aboveground", [{ transitionId: "t.door", x: 1, y: 8 }]);
+    const dest = grassPlane(NEXT, "inside", [], true);
+    installWorld(setup.runtime, source, dest, [setup.row]);
+    const arrival = arrivalCellFor(setup.runtime, setup.row, setup.player, { x: 1, y: 8 });
+    expect(arrival).toEqual({ x: 8, y: 0 });
+    queue(setup.runtime, { type: "interact", targetId: "transition_fixture", targetX: 1, targetY: 8 });
+    tick(setup.runtime);
+    tick(setup.runtime);
+    const arrived = tick(setup.runtime);
+    expect(arrived.events.some((event) => event.type === "pursuit_arrived")).toBe(true);
+    expect(setup.hunter).toMatchObject({ plane: NEXT, x: 8, y: 15 });
+  });
+
+  function installEscape(runtime: GameRuntime) {
+    const second = transitionRow("t.2", NEXT, THIRD, {
+      coordinateMode: "source_axis_copy",
+      transitionEffectProfileId: "copied_gate",
+    });
+    runtime.topology = { ...runtime.topology, transitions: [...runtime.topology.transitions, second] };
     const mid = grassPlane(NEXT, "inside", [{ transitionId: "t.2", x: 1, y: 1 }]);
     const end = grassPlane(THIRD, "inside");
-    setup.runtime.planeCache.set(planeKey(NEXT), mid);
-    setup.runtime.planeCache.set(planeKey(THIRD), end);
-    setup.runtime.currentPlaneBase = grassPlane(START, "aboveground", [{ transitionId: "t.door", x: 7, y: 5 }]);
-    setup.runtime.planeCache.set(planeKey(START), setup.runtime.currentPlaneBase);
+    runtime.planeCache.set(planeKey(NEXT), mid);
+    runtime.planeCache.set(planeKey(THIRD), end);
+    return second;
+  }
 
-    queue(setup.runtime, { type: "interact", targetId: "transition_fixture", targetX: 7, targetY: 5 });
-    tick(setup.runtime);
+  it("cancels same-transition pursuit if the player leaves before arrival", () => {
+    const setup = chaseSetup();
+    installEscape(setup.runtime);
+    leaveThroughDoor(setup.runtime);
     expect(setup.runtime.save.pursuits).toHaveLength(1);
     const player = playerActor(setup.runtime);
     player.x = 1;
     player.y = 2;
     queue(setup.runtime, { type: "interact", targetId: "transition_fixture", targetX: 1, targetY: 1 });
     const left = tick(setup.runtime);
-    expect(left.events.some((event) => event.type === "pursuit_cancelled" && event.actorId === "wolf.1")).toBe(true);
+    expect(left.events.some((event) => event.type === "pursuit_cancelled" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(left.events.some((event) => event.type === "pursuit_chained")).toBe(false);
     expect(setup.runtime.save.pursuits).toHaveLength(0);
-    expect(setup.wolf.plane).toEqual(START);
+    expect(setup.hunter.plane).toEqual(START);
+  });
+
+  it("also cancels ability-based pursuit if the player leaves before arrival", () => {
+    const setup = chaseSetup("void_leech");
+    installEscape(setup.runtime);
+    leaveThroughDoor(setup.runtime);
+    expect(setup.runtime.save.pursuits).toHaveLength(1);
+    const player = playerActor(setup.runtime);
+    player.x = 1;
+    player.y = 2;
+    queue(setup.runtime, { type: "interact", targetId: "transition_fixture", targetX: 1, targetY: 1 });
+    const left = tick(setup.runtime);
+    expect(left.events.some((event) => event.type === "pursuit_cancelled" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(left.events.some((event) => event.type === "pursuit_chained")).toBe(false);
+    expect(setup.runtime.save.pursuits).toHaveLength(0);
+    expect(setup.hunter.plane).toEqual(START);
+    expect(setup.hunter.x).toBe(5);
+    expect(setup.hunter.y).toBe(5);
+  });
+
+  it("can start a new independent handoff after the pursuer has arrived and is chasing", () => {
+    const setup = chaseSetup();
+    const second = installEscape(setup.runtime);
+    const firstArrival = arrivalCellFor(setup.runtime, setup.row, setup.player, { x: 7, y: 5 });
+    leaveThroughDoor(setup.runtime);
+    const landed = playerActor(setup.runtime);
+    queue(setup.runtime, { type: "move", direction: landed.x < 15 ? "east" : "west" });
+    tick(setup.runtime);
+    const arrived = tick(setup.runtime);
+    expect(arrived.events.some((event) => event.type === "pursuit_arrived")).toBe(true);
+    expect(setup.hunter.plane).toEqual(NEXT);
+    expect(setup.hunter.aiState).toBe("chasing");
+
+    setup.hunter.x = 1;
+    setup.hunter.y = 1;
+    const player = playerActor(setup.runtime);
+    player.x = 1;
+    player.y = 2;
+    queue(setup.runtime, { type: "interact", targetId: "transition_fixture", targetX: 1, targetY: 1 });
+    const left = tick(setup.runtime);
+    expect(left.events.some((event) => event.type === "pursuit_cancelled")).toBe(false);
+    expect(left.events.some((event) => event.type === "pursuit_started" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(setup.runtime.save.pursuits).toHaveLength(1);
+    expect(setup.runtime.save.pursuits[0]?.destinationPlane).toEqual(THIRD);
+    expect(setup.hunter.plane).toEqual(NEXT);
+    const secondArrival = arrivalCellFor(setup.runtime, second, player, { x: 1, y: 1 });
+    const destPlayer = playerActor(setup.runtime);
+    queue(setup.runtime, { type: "move", direction: destPlayer.x < 15 ? "east" : "west" });
+    tick(setup.runtime);
+    const followed = tick(setup.runtime);
+    expect(followed.events.some((event) => event.type === "pursuit_arrived" && event.actorId === setup.hunter.id)).toBe(true);
+    expect(setup.hunter.plane).toEqual(THIRD);
+    expect(setup.hunter.x).toBe(secondArrival.x);
+    expect(setup.hunter.y).toBe(secondArrival.y);
+    expect(firstArrival).not.toEqual(secondArrival);
   });
 
   it("does not simulate frozen source-plane actors", () => {
     const setup = chaseSetup();
-    applyStatus(setup.wolf, "poisoned", null, []);
-    const remaining = setup.wolf.statuses[0]?.remainingTicks;
+    const arrival = arrivalCellFor(setup.runtime, setup.row, setup.player, { x: 7, y: 5 });
+    for (const [id, x, y] of [
+      ["block.n", arrival.x, arrival.y - 1],
+      ["block.e", arrival.x + 1, arrival.y],
+      ["block.s", arrival.x, arrival.y + 1],
+      ["block.w", arrival.x - 1, arrival.y],
+    ] as const) {
+      setup.runtime.save.actors.push(createMonsterActor(id, "rat", NEXT, x, y));
+    }
+    applyStatus(setup.hunter, "poisoned", null, []);
+    const remaining = setup.hunter.statuses[0]?.remainingTicks;
     expect(remaining).toBeGreaterThan(1);
-    queue(setup.runtime, { type: "interact", targetId: "transition_fixture", targetX: 7, targetY: 5 });
-    tick(setup.runtime);
-    const frozen = { x: setup.wolf.x, y: setup.wolf.y };
+    leaveThroughDoor(setup.runtime);
+    const frozen = { x: setup.hunter.x, y: setup.hunter.y };
     runtimeWait(setup.runtime, 3);
-    expect(setup.wolf.x).toBe(frozen.x);
-    expect(setup.wolf.y).toBe(frozen.y);
-    expect(setup.wolf.plane).toEqual(START);
-    expect(setup.wolf.statuses[0]?.remainingTicks).toBe(remaining);
+    expect(setup.hunter.x).toBe(frozen.x);
+    expect(setup.hunter.y).toBe(frozen.y);
+    expect(setup.hunter.plane).toEqual(START);
+    expect(setup.hunter.statuses[0]?.remainingTicks).toBe(remaining);
   });
 });
 
