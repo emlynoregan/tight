@@ -1,4 +1,5 @@
 import type { IntentionalAction } from "../model/save-state";
+import { planesEqual } from "../model/plane";
 import type { GameRuntime } from "../runtime/game-runtime";
 import { resolveAction } from "./actions";
 import { selectMonsterAction } from "./ai";
@@ -8,6 +9,7 @@ import { capturePlayerAction } from "./commands";
 import { resolveDeaths } from "./death";
 import { initiativeOrder } from "./initiative";
 import { applyEnvironmentalMovement } from "./space";
+import { activeActors, evaluatePursuitHandoffs, syncPlaneAfterPlayerMove } from "./transitions";
 import type { TickEvent } from "./tick-events";
 
 export interface TickResult {
@@ -23,7 +25,8 @@ export function advanceTick(runtime: GameRuntime): TickResult {
     return { advanced: false, tick: save.tick, events: [{ type: "paused", detail: save.modal }], reason: "paused" };
   }
 
-  for (const actor of save.actors) {
+  const present = activeActors(runtime);
+  for (const actor of present) {
     syncDerivedMaxHp(save, actor);
   }
 
@@ -31,13 +34,13 @@ export function advanceTick(runtime: GameRuntime): TickResult {
   const playerAction = capturePlayerAction(save);
   const intended = new Map<string, IntentionalAction>();
   intended.set("player", playerAction);
-  for (const actor of save.actors) {
+  for (const actor of present) {
     if (actor.id === "player") {
       continue;
     }
     intended.set(actor.id, runtime.scriptedActions.get(actor.id) ?? selectMonsterAction(runtime, actor, events));
   }
-  const order = initiativeOrder(save.actors, save.worldSeed, save.tick, (actor) => {
+  const order = initiativeOrder(present, save.worldSeed, save.tick, (actor) => {
     return effectiveAttributes(save, actor).spd + effectiveInitiativeModifier(save, actor);
   });
   const acted = new Set<string>();
@@ -47,17 +50,22 @@ export function advanceTick(runtime: GameRuntime): TickResult {
     }
     const actor = save.actors.find((row) => row.id === entry.actorId);
     const action = intended.get(entry.actorId);
-    if (!actor || !action) {
+    if (!actor || !action || !planesEqual(actor.plane, save.plane)) {
       continue;
     }
-    events.push(...resolveAction(save, runtime.currentPlaneBase, actor, action));
+    events.push(...resolveAction(runtime, actor, action));
     acted.add(entry.actorId);
   }
 
-  applyEnvironmentalMovement(save, runtime.currentPlaneBase, order, events);
+  applyEnvironmentalMovement(runtime, order.filter((entry) => {
+    const actor = save.actors.find((row) => row.id === entry.actorId);
+    return actor !== undefined && planesEqual(actor.plane, save.plane);
+  }), events);
   applyPeriodicStatuses(save, runtime.currentPlaneBase, events);
   resolveDeaths(save, events);
+  syncPlaneAfterPlayerMove(runtime, events);
   expireStatusesAndCooldowns(save, events);
+  evaluatePursuitHandoffs(runtime, events);
 
   save.tick += 1;
   return { advanced: true, tick: save.tick, events };

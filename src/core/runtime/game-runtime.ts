@@ -8,8 +8,8 @@ import { bytesToHex, sha256 } from "../generation/sha256";
 import type { WorldTopology } from "../generation/topology-types";
 import { GLOBAL_CONSTANTS } from "../model/constants";
 import type { GeneratorVersionId } from "../model/ids";
-import { planesEqual, STARTING_PLANE, type MapCoordinate, type PlanePair } from "../model/plane";
-import { defaultAiFields, type ActorState, type EquipmentLoadout, type IntentionalAction, type SaveState } from "../model/save-state";
+import { planeKey, planesEqual, STARTING_PLANE, type MapCoordinate, type PlanePair } from "../model/plane";
+import { defaultAiFields, type ActorState, type EquipmentLoadout, type IntentionalAction, type PendingPlayerTransition, type SaveState } from "../model/save-state";
 import { scaledMonster } from "../rules/actor-stats";
 import { materializeRuntimePlane } from "./materialize-plane";
 
@@ -19,12 +19,16 @@ export function maxHpForCon(con: number): number {
 
 export interface GameRuntime {
   readonly identity: { readonly generatorVersion: GeneratorVersionId; readonly worldSeed: string };
-  readonly topology: WorldTopology;
+  readonly world: AcceptedWorldSuccess;
+  topology: WorldTopology;
   readonly content: typeof CONTENT_REGISTRY;
   save: SaveState;
   currentPlaneBase: PlaneBase;
   omittedFixtureIds: readonly string[];
   scriptedActions: Map<string, IntentionalAction>;
+  planeCache: Map<string, PlaneBase>;
+  generatePlane?: PlaneGenerateFn;
+  pendingPlayerTransition: PendingPlayerTransition | null;
 }
 
 export interface CreateNewGameOptions extends AcceptedWorldOptions {
@@ -90,9 +94,8 @@ function actorAtPoint(
   };
 }
 
-export function materializeActors(topology: WorldTopology, planeBase: PlaneBase, player: ActorState): ActorState[] {
-  const actors: ActorState[] = [player];
-  const occupied = new Set([`${player.y},${player.x}`]);
+export function materializeNonPlayerActors(topology: WorldTopology, planeBase: PlaneBase, occupied: Set<string> = new Set()): ActorState[] {
+  const actors: ActorState[] = [];
   const points = new Map(planeBase.namedPoints.map((point) => [point.id, point]));
   for (const npc of topology.npcInstances) {
     if (!planesEqual(npc.plane, planeBase.plane)) {
@@ -119,10 +122,16 @@ export function materializeActors(topology: WorldTopology, planeBase: PlaneBase,
   return actors;
 }
 
+export function materializeActors(topology: WorldTopology, planeBase: PlaneBase, player: ActorState): ActorState[] {
+  const occupied = new Set([`${player.y},${player.x}`]);
+  return [player, ...materializeNonPlayerActors(topology, planeBase, occupied)];
+}
+
 export function createRuntimeFromAccepted(
   world: AcceptedWorldSuccess,
   planeBase: PlaneBase,
   omittedFixtureIds: readonly string[] = [],
+  generatePlane?: PlaneGenerateFn,
 ): GameRuntime {
   const spawn = playerSpawn(planeBase);
   const maxHp = maxHpForCon(STARTING_PLAYER_STATE.attributes.con);
@@ -168,15 +177,22 @@ export function createRuntimeFromAccepted(
     actors: materializeActors(world.topology, planeBase, playerActor),
     flags: [],
     featureStates: [],
+    pursuits: [],
+    consumedTransitionIds: [],
+    lastTransition: null,
   };
   return {
     identity: { generatorVersion: world.topology.generatorVersion, worldSeed: world.topology.worldSeed },
+    world,
     topology: world.topology,
     content: CONTENT_REGISTRY,
     save,
     currentPlaneBase: planeBase,
     omittedFixtureIds,
     scriptedActions: new Map(),
+    planeCache: new Map([[planeKey(planeBase.plane), planeBase]]),
+    pendingPlayerTransition: null,
+    ...(generatePlane ? { generatePlane } : {}),
   };
 }
 
@@ -185,11 +201,12 @@ export function createNewGame(version: string, seed: string, options: CreateNewG
   if (!world.ok) {
     throw new Error(`cannot create New Game: ${world.code}: ${world.message}`);
   }
-  const materialized = materializeRuntimePlane(world, STARTING_PLANE, options.materializePlane ?? options.generatePlane);
+  const generate = options.materializePlane ?? options.generatePlane;
+  const materialized = materializeRuntimePlane(world, STARTING_PLANE, generate);
   if (!materialized.ok) {
     throw new Error(`starting plane unrealizable: ${materialized.message}`);
   }
-  return createRuntimeFromAccepted(world, materialized.plane, materialized.omittedFixtureIds);
+  return createRuntimeFromAccepted(world, materialized.plane, materialized.omittedFixtureIds, generate);
 }
 
 export function hashSaveState(save: SaveState): string {

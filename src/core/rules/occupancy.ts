@@ -28,6 +28,10 @@ export function cellBlockedByTerrain(plane: PlaneBase, cell: MapCoordinate): boo
   return !isOccupiable(planeGrid(plane), cell);
 }
 
+export function actorsOnPlane(actors: readonly ActorState[], plane: PlanePair): ActorState[] {
+  return actors.filter((actor) => planesEqual(actor.plane, plane));
+}
+
 export function actorAt(actors: readonly ActorState[], cell: MapCoordinate, exceptId?: string): ActorState | undefined {
   return actors.find((actor) => actor.x === cell.x && actor.y === cell.y && actor.id !== exceptId);
 }
@@ -82,7 +86,7 @@ export function canOccupy(
       return false;
     }
   }
-  const occupant = actorAt(actors, cell, moverId);
+  const occupant = actorAt(actorsOnPlane(actors, plane.plane), cell, moverId);
   return !occupant?.blocking;
 }
 

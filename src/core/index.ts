@@ -77,8 +77,17 @@ export type { PlayerCommand, CommandResult } from "./rules/commands";
 export { advanceTick } from "./rules/tick";
 export type { TickResult } from "./rules/tick";
 export { selectMonsterAction, detectsPlayer, progressBossPhases } from "./rules/ai";
-export { shortestPathFirstStep, shortestPathFirstAction, nearestReachable } from "./rules/pathfinding";
+export { shortestPathFirstStep, shortestPathFirstAction, nearestReachable, movementCostTo } from "./rules/pathfinding";
 export { defaultAiFields } from "./model/save-state";
+export type { SaveState, IntentionalAction, Direction, ActorState, PursuitHandoff } from "./model/save-state";
+export {
+  activateTransition,
+  arrivalCellFor,
+  destinationCoordinate,
+  evaluatePursuitHandoffs,
+  ensurePlaneLoaded,
+  switchCurrentPlane,
+} from "./rules/transitions";
 export { initiativeOrder } from "./rules/initiative";
 export { governingStat, hitChancePercent, rawDamage, resolveDamagePipeline, resolveFlatDamage } from "./rules/combat-math";
 export { CHANNEL_MULTIPLIER, RESISTANCE_MULTIPLIER } from "./model/constants";
@@ -86,4 +95,3 @@ export { hasLineOfSight, hasLineOfEffect, supercoverLine } from "./rules/los";
 export { applyStatus, forcedMove, expireStatusesAndCooldowns } from "./rules/apply-effects";
 export { scaledMonster, effectiveAttributes, resistanceFor, flatArmour, channelStateForFamily, cooldownRemaining } from "./rules/actor-stats";
 export type { ScalingRuleId } from "./model/ids";
-export type { SaveState, IntentionalAction, Direction, ActorState } from "./model/save-state";

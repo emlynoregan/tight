@@ -20,14 +20,16 @@ export const PURSUIT_SPEEDS = [
 ] as const;
 export const PURSUIT_MODES = ["follow_same_transition", "phase_to_arrival", "emerge_adjacent"] as const;
 export const ARRIVAL_RULES = ["exact", "exact_or_fail", "adjacent_nesw", "nearest_legal"] as const;
-export const TRANSITION_EFFECT_PROFILES = [
-  "fixed_gate",
-  "copied_gate",
-  "derived_gate",
-  "fixed_no_pursuit",
-  "derived_no_pursuit",
-  "return_previous",
+export const TRANSITION_EFFECT_PROFILE_ROWS = [
+  { id: "fixed_gate", coordinateMode: "fixed", pursuit: true },
+  { id: "copied_gate", coordinateMode: "source_axis_copy", pursuit: true },
+  { id: "derived_gate", coordinateMode: "deterministic_derived", pursuit: true },
+  { id: "fixed_no_pursuit", coordinateMode: "fixed", pursuit: false },
+  { id: "derived_no_pursuit", coordinateMode: "deterministic_derived", pursuit: false },
+  { id: "return_previous", coordinateMode: "return_previous", pursuit: false },
 ] as const;
+
+export const TRANSITION_EFFECT_PROFILES = TRANSITION_EFFECT_PROFILE_ROWS.map((row) => row.id);
 
 export const TRANSITION_ARCHETYPES: readonly TransitionArchetype[] = [
   { id: "door", activation: "interact", pursuitCategory: "mundane_passage", brokenVariant: "blocked doorway", defaultCoordinateMode: "fixed", pursuitAllowed: true, singleUseDefault: false, forcedActivation: false },

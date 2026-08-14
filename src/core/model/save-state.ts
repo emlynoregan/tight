@@ -115,6 +115,39 @@ export interface FeatureInstanceState {
   state: string;
 }
 
+export type PursuitMode = "follow_same_transition" | "phase_to_arrival" | "emerge_adjacent";
+
+export type PursuitArrivalRule = "exact" | "exact_or_fail" | "adjacent_nesw" | "nearest_legal";
+
+export interface PursuitHandoff {
+  actorId: string;
+  sourcePlane: PlanePair;
+  transitionId: string;
+  destinationPlane: PlanePair;
+  remainingDelay: number;
+  pursuitMode: PursuitMode;
+  arrivalRule: PursuitArrivalRule;
+  arrivalX: number;
+  arrivalY: number;
+}
+
+export interface LastTransition {
+  plane: PlanePair;
+  x: number;
+  y: number;
+}
+
+export interface PendingPlayerTransition {
+  sourcePlane: PlanePair;
+  sourceCell: MapCoordinate;
+  transitionId: string;
+  destinationPlane: PlanePair;
+  arrival: MapCoordinate;
+  pursuitAllowed: boolean;
+  archetypeId: string;
+  profileId: string;
+}
+
 export interface SaveState {
   generatorVersion: GeneratorVersionId;
   worldSeed: string;
@@ -132,4 +165,7 @@ export interface SaveState {
   actors: ActorState[];
   flags: string[];
   featureStates: FeatureInstanceState[];
+  pursuits: PursuitHandoff[];
+  consumedTransitionIds: string[];
+  lastTransition: LastTransition | null;
 }

@@ -170,6 +170,10 @@ export function actorPreventsSpells(actor: ActorState): boolean {
   return actor.statuses.some((row) => CONTENT_REGISTRY.byId.status.get(row.id)?.preventsSpellAbilities);
 }
 
+export function actorPreventsPersonalTransition(actor: ActorState): boolean {
+  return actor.statuses.some((row) => CONTENT_REGISTRY.byId.status.get(row.id)?.preventsPersonalTransition);
+}
+
 export function actorIsHidden(actor: ActorState): boolean {
   return actor.statuses.some((row) => CONTENT_REGISTRY.byId.status.get(row.id)?.hidden);
 }

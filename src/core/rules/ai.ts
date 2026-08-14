@@ -4,6 +4,7 @@ import { boundedUnit, percentile, semantic } from "../generation/semantic-random
 import type { PlaneBase } from "../generation/plane-types";
 import type { AbilityDefinition, AttackDefinition, BossPhase, MonsterSpecies } from "../model/content-types";
 import type { MapCoordinate } from "../model/plane";
+import { planesEqual } from "../model/plane";
 import {
   DIRECTION_DELTA,
   DIRECTIONS,
@@ -79,6 +80,9 @@ function hiddenDetectable(viewer: ActorState, target: ActorState, wraps: boolean
 }
 
 export function detectsPlayer(plane: PlaneBase, save: SaveState, actor: ActorState, player: ActorState): boolean {
+  if (!planesEqual(actor.plane, player.plane)) {
+    return false;
+  }
   if (actor.lastAffectedTick >= 0 && actor.lastAffectedTick === save.tick - 1) {
     return true;
   }

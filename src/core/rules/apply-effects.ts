@@ -3,6 +3,7 @@ import { compareStableIds } from "../generation/semantic-random";
 import type { PlaneBase } from "../generation/plane-types";
 import type { AtomicEffect } from "../model/content-types";
 import type { MapCoordinate } from "../model/plane";
+import { planesEqual } from "../model/plane";
 import type { ActorState, Direction, SaveState, StatusInstance } from "../model/save-state";
 import { actorIsHidden, flatArmour, resistanceFor, syncDerivedMaxHp } from "./actor-stats";
 import { resolveFlatDamage } from "./combat-math";
@@ -208,7 +209,9 @@ export function applyEffectIds(
 }
 
 export function applyPeriodicStatuses(save: SaveState, plane: PlaneBase, events: TickEvent[]): void {
-  const actors = [...save.actors].sort((left, right) => compareStableIds(left.id, right.id));
+  const actors = [...save.actors]
+    .filter((actor) => planesEqual(actor.plane, plane.plane))
+    .sort((left, right) => compareStableIds(left.id, right.id));
   for (const actor of actors) {
     syncDerivedMaxHp(save, actor);
     for (const instance of [...actor.statuses].sort((left, right) => compareStableIds(left.id, right.id))) {
@@ -223,6 +226,9 @@ export function applyPeriodicStatuses(save: SaveState, plane: PlaneBase, events:
 
 export function expireStatusesAndCooldowns(save: SaveState, events: TickEvent[]): void {
   for (const actor of save.actors) {
+    if (!planesEqual(actor.plane, save.plane)) {
+      continue;
+    }
     const kept: StatusInstance[] = [];
     for (const instance of actor.statuses) {
       if (instance.remainingTicks === "until_broken") {

@@ -14,6 +14,9 @@ export function resolveDeaths(save: SaveState, events: TickEvent[]): void {
       continue;
     }
     save.actors = save.actors.filter((row) => row.id !== actor.id);
+    if (!save.flags.includes(`defeated:${actor.id}`)) {
+      save.flags.push(`defeated:${actor.id}`);
+    }
     events.push({ type: "monster_died", actorId: actor.id });
   }
 }

@@ -162,3 +162,13 @@ export function nearestReachable(
   reached.sort(compareReachable);
   return reached[0]?.cell ?? null;
 }
+
+export function movementCostTo(
+  plane: PlaneBase,
+  save: SaveState,
+  actors: readonly ActorState[],
+  mover: ActorState,
+  goal: MapCoordinate,
+): number | null {
+  return reachableFrom(plane, save, actors, mover).get(cellKey(goal))?.cost ?? null;
+}

@@ -1,11 +1,12 @@
 import { ORTHOGONAL } from "../generation/grid";
-import type { PlaneBase } from "../generation/plane-types";
 import type { MapCoordinate } from "../model/plane";
-import type { ActorState, IntentionalAction, SaveState } from "../model/save-state";
+import type { ActorState, IntentionalAction } from "../model/save-state";
 import { DIRECTION_DELTA } from "../model/save-state";
+import type { GameRuntime } from "../runtime/game-runtime";
 import { prepareAction, resolveAbilityAction, resolveAttackAction, resolveItemAction } from "./combat";
-import { canOccupy, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, setFeatureRuntimeState } from "./occupancy";
+import { actorsOnPlane, canOccupy, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, setFeatureRuntimeState } from "./occupancy";
 import { applyThrust } from "./space";
+import { maybeStepOnTransition, tryActivateWorldTransition, tryEdgeCross } from "./transitions";
 import type { TickEvent } from "./tick-events";
 
 export type { TickEvent } from "./tick-events";
@@ -14,12 +15,9 @@ function adjacentCells(origin: MapCoordinate, wraps: boolean): MapCoordinate[] {
   return ORTHOGONAL.map((delta) => destinationCell(origin, delta, wraps)).filter((cell): cell is MapCoordinate => cell !== null);
 }
 
-export function resolveAction(
-  save: SaveState,
-  plane: PlaneBase,
-  actor: ActorState,
-  action: IntentionalAction,
-): TickEvent[] {
+export function resolveAction(runtime: GameRuntime, actor: ActorState, action: IntentionalAction): TickEvent[] {
+  const save = runtime.save;
+  const plane = runtime.currentPlaneBase;
   const prepared = prepareAction(save, actor, action);
   if ("failed" in prepared) {
     return [{ type: "action_failed", actorId: actor.id, detail: prepared.failed }];
@@ -40,15 +38,24 @@ export function resolveAction(
       return [{ type: "action_failed", actorId: actor.id, detail: "missing direction" }];
     }
     const dest = destinationCell(actor, DIRECTION_DELTA[resolved.direction], plane.wraps);
-    if (!dest || !canOccupy(plane, save.actors, dest, actor.id, save)) {
+    if (!dest) {
+      const edge = tryEdgeCross(runtime, actor, resolved.direction);
+      if (edge !== null) {
+        return edge;
+      }
+      return [{ type: "action_failed", actorId: actor.id, detail: "blocked" }];
+    }
+    if (!canOccupy(plane, save.actors, dest, actor.id, save)) {
       return [{ type: "action_failed", actorId: actor.id, detail: "blocked" }];
     }
     actor.x = dest.x;
     actor.y = dest.y;
-    return [{ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y }];
+    const events: TickEvent[] = [{ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y }];
+    events.push(...maybeStepOnTransition(runtime, actor, true));
+    return events;
   }
   if (resolved.type === "interact") {
-    return resolveInteract(save, plane, actor, resolved);
+    return resolveInteract(runtime, actor, resolved);
   }
   if (resolved.type === "attack") {
     return resolveAttackAction(save, plane, actor, resolved, save.family);
@@ -62,14 +69,17 @@ export function resolveAction(
   return [{ type: "action_failed", actorId: actor.id, detail: "unknown action" }];
 }
 
-function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, action: IntentionalAction): TickEvent[] {
+function resolveInteract(runtime: GameRuntime, actor: ActorState, action: IntentionalAction): TickEvent[] {
+  const save = runtime.save;
+  const plane = runtime.currentPlaneBase;
   const origin = { x: actor.x, y: actor.y };
-  const neighbours = adjacentCells(origin, plane.wraps);
+  const neighbours = [origin, ...adjacentCells(origin, plane.wraps)];
   const featureTargets = neighbours
     .map((cell) => ({ cell, featureId: featureAt(plane, cell) }))
     .filter((row): row is { cell: MapCoordinate; featureId: string } => row.featureId !== null && featureIsInteractive(row.featureId));
+  const localActors = actorsOnPlane(save.actors, plane.plane);
   const actorTargets = neighbours
-    .map((cell) => save.actors.find((row) => row.x === cell.x && row.y === cell.y && row.id !== actor.id))
+    .map((cell) => localActors.find((row) => row.x === cell.x && row.y === cell.y && row.id !== actor.id))
     .filter((row): row is ActorState => row !== undefined && (row.kind === "npc" || row.kind === "guardian"));
 
   const targetId = action.targetId;
@@ -77,7 +87,10 @@ function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, a
   let chosenActor = actorTargets[0];
   if (targetId) {
     chosenFeature = featureTargets.find((row) => {
-      if (row.featureId !== targetId) {
+      const idMatch =
+        row.featureId === targetId ||
+        (row.featureId === "transition_fixture" && (targetId === "transition_fixture" || targetId.startsWith("transition.")));
+      if (!idMatch) {
         return false;
       }
       if (action.targetX === undefined || action.targetY === undefined) {
@@ -93,6 +106,12 @@ function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, a
       { type: "interacted", actorId: actor.id, targetId: chosenActor.id },
       { type: "modal_opened", detail: save.modal },
     ];
+  }
+  if (chosenFeature?.featureId === "transition_fixture") {
+    const events = tryActivateWorldTransition(runtime, actor, chosenFeature.cell, "interact");
+    if (events) {
+      return events;
+    }
   }
   if (chosenFeature?.featureId === "safe_anchor") {
     save.player.safeAnchor = { plane: save.plane, x: chosenFeature.cell.x, y: chosenFeature.cell.y };

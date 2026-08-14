@@ -3,8 +3,10 @@ import type { PlaneBase } from "../generation/plane-types";
 import type { MapCoordinate } from "../model/plane";
 import type { ActorState, Direction, SaveState } from "../model/save-state";
 import { DIRECTION_DELTA } from "../model/save-state";
+import type { GameRuntime } from "../runtime/game-runtime";
 import { canOccupy, destinationCell } from "./occupancy";
 import type { TickEvent } from "./tick-events";
+import { maybeStepOnTransition } from "./transitions";
 
 export function spacePhysicsActive(family: string): boolean {
   return family === "space";
@@ -89,11 +91,12 @@ export function landingAfterThrust(
 }
 
 export function applyEnvironmentalMovement(
-  save: SaveState,
-  plane: PlaneBase,
+  runtime: GameRuntime,
   order: readonly { actorId: string }[],
   events: TickEvent[],
 ): void {
+  const save = runtime.save;
+  const plane = runtime.currentPlaneBase;
   if (!spacePhysicsActive(save.family)) {
     return;
   }
@@ -103,7 +106,8 @@ export function applyEnvironmentalMovement(
       continue;
     }
     const landed = simulateVelocityMovement(plane, save.actors, actor, actor.vx, actor.vy, save);
-    if (landed.x !== actor.x || landed.y !== actor.y) {
+    const moved = landed.x !== actor.x || landed.y !== actor.y;
+    if (moved) {
       actor.x = landed.x;
       actor.y = landed.y;
       events.push({ type: "actor_moved", actorId: actor.id, x: actor.x, y: actor.y });
@@ -112,6 +116,9 @@ export function applyEnvironmentalMovement(
       actor.vx = 0;
       actor.vy = 0;
       events.push({ type: "velocity_stopped", actorId: actor.id });
+    }
+    if (moved) {
+      events.push(...maybeStepOnTransition(runtime, actor, false));
     }
   }
 }
