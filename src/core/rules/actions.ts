@@ -37,9 +37,6 @@ export function resolveAction(
     }
     actor.x = dest.x;
     actor.y = dest.y;
-    if (actor.id === "player") {
-      save.player.hp = actor.hp;
-    }
     return [{ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y }];
   }
   if (action.type === "interact") {
@@ -74,7 +71,6 @@ function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, t
   if (chosenFeature?.featureId === "safe_anchor") {
     save.player.safeAnchor = { plane: save.plane, x: chosenFeature.cell.x, y: chosenFeature.cell.y };
     actor.hp = actor.maxHp;
-    save.player.hp = actor.maxHp;
     return [{ type: "interacted", actorId: actor.id, targetId: "safe_anchor", x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
   }
   if (chosenFeature) {

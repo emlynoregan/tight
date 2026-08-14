@@ -4,11 +4,18 @@ import {
   applyPlayerCommand,
   createAcceptedWorldCache,
   createNewGame,
+  generatePlaneBase,
+  getAcceptedWorld,
   hashSaveState,
   initiativeOrder,
+  planeKey,
   playerActor,
+  proofRequiredFixtures,
+  STARTING_PLANE,
   type ActorState,
   type IntentionalAction,
+  type PlaneGenerationResult,
+  type PlanePair,
 } from "../../src/core";
 
 const cache = createAcceptedWorldCache();
@@ -19,6 +26,38 @@ function newGame(seed = "0") {
 
 function queue(runtime: ReturnType<typeof newGame>, action: IntentionalAction) {
   return applyPlayerCommand(runtime, { type: "queue", action });
+}
+
+function failPlane(plane = STARTING_PLANE): PlaneGenerationResult {
+  return {
+    ok: false,
+    code: "PLANE_GEOMETRY_FAILURE",
+    message: "forced unrealizable",
+    issues: [{ validator: "required_points_connected", detail: "forced" }],
+    plane,
+  };
+}
+
+function requireAccepted(seed = "0") {
+  const world = getAcceptedWorld("tight-v1", seed, { cache });
+  expect(world.ok).toBe(true);
+  if (!world.ok) {
+    throw new Error(world.message);
+  }
+  return world;
+}
+
+function extraStartingFixture(seed = "0") {
+  const world = requireAccepted(seed);
+  const proof = proofRequiredFixtures(world.topology, world.witness);
+  const onStart = (plane: PlanePair) => planeKey(plane) === planeKey(STARTING_PLANE);
+  return (
+    world.topology.progressionSources.find((row) => !proof.sourceIds.has(row.id) && onStart(row.plane)) ??
+    world.topology.shopInstances.find((row) => !proof.shopIds.has(row.id) && onStart(row.plane)) ??
+    world.topology.guardianInstances.find((row) => !proof.guardianIds.has(row.id) && onStart(row.plane)) ??
+    world.topology.npcInstances.find((row) => !proof.npcIds.has(row.id) && onStart(row.plane)) ??
+    world.topology.questInstances.find((row) => !proof.questIds.has(row.id) && onStart(row.plane))
+  );
 }
 
 describe("runtime tick engine", () => {
@@ -134,14 +173,29 @@ describe("runtime tick engine", () => {
 
   it("dispatches a basic adjacent safe-anchor interaction", () => {
     const runtime = newGame();
-    runtime.save.player.hp = 10;
     playerActor(runtime).hp = 10;
     const result = queue(runtime, { type: "interact", targetId: "safe_anchor" });
     expect(result.ok).toBe(true);
     const tick = advanceTick(runtime);
     expect(tick.events.some((event) => event.type === "interacted" && event.targetId === "safe_anchor")).toBe(true);
-    expect(runtime.save.player.hp).toBe(18);
+    expect(playerActor(runtime).hp).toBe(18);
     expect(runtime.save.player.safeAnchor.plane).toEqual({ a: 0, b: 1 });
+    expect("hp" in runtime.save.player).toBe(false);
+    expect("maxHp" in runtime.save.player).toBe(false);
+  });
+
+  it("keeps a single authoritative player HP owner under healing and JSON round-trip", () => {
+    const runtime = newGame();
+    playerActor(runtime).hp = 7;
+    expect(playerActor(runtime).hp).toBe(7);
+    expect("hp" in runtime.save.player).toBe(false);
+    queue(runtime, { type: "interact", targetId: "safe_anchor" });
+    advanceTick(runtime);
+    expect(playerActor(runtime).hp).toBe(playerActor(runtime).maxHp);
+    const restored = JSON.parse(JSON.stringify(runtime.save)) as typeof runtime.save;
+    expect(hashSaveState(restored)).toBe(hashSaveState(runtime.save));
+    const restoredHp = restored.actors.find((row) => row.id === "player")?.hp;
+    expect(restoredHp).toBe(playerActor(runtime).hp);
   });
 
   it("orders initiative ties from actor identity and current tick", () => {
@@ -194,5 +248,62 @@ describe("runtime tick engine", () => {
     advanceTick(runtime);
     const restored = JSON.parse(JSON.stringify(runtime.save));
     expect(hashSaveState(restored)).toBe(hashSaveState(runtime.save));
+  });
+
+  it("starts New Game when a non-witness starting-plane fixture is unrealizable", () => {
+    const seed = "0";
+    const baseline = requireAccepted(seed);
+    const extra = extraStartingFixture(seed);
+    expect(extra).toBeDefined();
+    const generatePlane = (worldSeed: string, topology: (typeof baseline)["topology"], plane: typeof STARTING_PLANE) => {
+      const present =
+        topology.progressionSources.some((row) => row.id === extra!.id) ||
+        topology.shopInstances.some((row) => row.id === extra!.id) ||
+        topology.guardianInstances.some((row) => row.id === extra!.id) ||
+        topology.npcInstances.some((row) => row.id === extra!.id) ||
+        topology.questInstances.some((row) => row.id === extra!.id) ||
+        topology.transitions.some((row) => row.id === extra!.id);
+      if (present) {
+        return failPlane(plane);
+      }
+      return generatePlaneBase(worldSeed, topology, plane);
+    };
+    const first = createNewGame("tight-v1", seed, { cache, generatePlane });
+    expect(first.save.topologyHash).toBe(baseline.topologyHash);
+    expect(first.omittedFixtureIds).toContain(extra!.id);
+    expect(first.topology.topologyAttempt).toBe(baseline.acceptedAttempt);
+    expect(first.topology.progressionSources.some((row) => row.id === extra!.id) || first.topology.npcInstances.some((row) => row.id === extra!.id) || first.topology.guardianInstances.some((row) => row.id === extra!.id) || first.topology.shopInstances.some((row) => row.id === extra!.id) || first.topology.questInstances.some((row) => row.id === extra!.id)).toBe(true);
+    const second = createNewGame("tight-v1", seed, { cache, generatePlane });
+    expect(second.currentPlaneBase.planeHash).toBe(first.currentPlaneBase.planeHash);
+    expect(second.omittedFixtureIds).toEqual(first.omittedFixtureIds);
+    expect(second.save.topologyHash).toBe(first.save.topologyHash);
+  });
+
+  it("does not downgrade a proof-required starting-plane failure or change the accepted world", () => {
+    const seed = "0";
+    const baseline = requireAccepted(seed);
+    const proof = proofRequiredFixtures(baseline.topology, baseline.witness);
+    const required =
+      baseline.topology.progressionSources.find((row) => proof.sourceIds.has(row.id) && planeKey(row.plane) === planeKey(STARTING_PLANE)) ??
+      baseline.topology.transitions.find(
+        (row) => proof.transitionIds.has(row.id) && (planeKey(row.sourcePlane) === planeKey(STARTING_PLANE) || planeKey(row.destinationPlane) === planeKey(STARTING_PLANE)),
+      );
+    expect(required).toBeDefined();
+    expect(() =>
+      createNewGame("tight-v1", seed, {
+        cache,
+        materializePlane: (worldSeed, topology, plane) => {
+          const present =
+            topology.progressionSources.some((row) => row.id === required!.id) || topology.transitions.some((row) => row.id === required!.id);
+          if (present) {
+            return failPlane(plane);
+          }
+          return generatePlaneBase(worldSeed, topology, plane);
+        },
+      }),
+    ).toThrow(/starting plane unrealizable/);
+    const again = requireAccepted(seed);
+    expect(again.acceptedAttempt).toBe(baseline.acceptedAttempt);
+    expect(again.topologyHash).toBe(baseline.topologyHash);
   });
 });

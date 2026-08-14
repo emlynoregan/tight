@@ -46,8 +46,6 @@ export interface ActorState {
 export interface PlayerState {
   attributes: Record<AttributeId, number>;
   unspentAp: number;
-  hp: number;
-  maxHp: number;
   currency: number;
   equipment: EquipmentLoadout;
   inventory: ItemStack[];

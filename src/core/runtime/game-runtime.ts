@@ -1,9 +1,8 @@
 import { CONTENT_REGISTRY } from "../data/registry";
 import { STARTING_LOADOUT } from "../data/items";
 import { STARTING_PLAYER_STATE } from "../data/progression";
-import { getAcceptedWorld, type AcceptedWorldOptions, type AcceptedWorldSuccess } from "../generation/accepted-world";
+import { getAcceptedWorld, type AcceptedWorldOptions, type AcceptedWorldSuccess, type PlaneGenerateFn } from "../generation/accepted-world";
 import { canonicalizeValue } from "../generation/canonical";
-import { generatePlaneBase } from "../generation/generate-plane";
 import type { PlaneBase } from "../generation/plane-types";
 import { bytesToHex, sha256 } from "../generation/sha256";
 import type { WorldTopology } from "../generation/topology-types";
@@ -11,6 +10,7 @@ import { GLOBAL_CONSTANTS } from "../model/constants";
 import type { GeneratorVersionId } from "../model/ids";
 import { planesEqual, STARTING_PLANE, type MapCoordinate, type PlanePair } from "../model/plane";
 import type { ActorState, EquipmentLoadout, SaveState } from "../model/save-state";
+import { materializeRuntimePlane } from "./materialize-plane";
 
 export function maxHpForCon(con: number): number {
   return GLOBAL_CONSTANTS.baseHpConstant + GLOBAL_CONSTANTS.hpPerCon * con;
@@ -22,9 +22,12 @@ export interface GameRuntime {
   readonly content: typeof CONTENT_REGISTRY;
   save: SaveState;
   currentPlaneBase: PlaneBase;
+  omittedFixtureIds: readonly string[];
 }
 
-export interface CreateNewGameOptions extends AcceptedWorldOptions {}
+export interface CreateNewGameOptions extends AcceptedWorldOptions {
+  readonly materializePlane?: PlaneGenerateFn;
+}
 
 function emptyEquipment(): EquipmentLoadout {
   return {
@@ -111,6 +114,7 @@ export function materializeActors(topology: WorldTopology, planeBase: PlaneBase,
 export function createRuntimeFromAccepted(
   world: AcceptedWorldSuccess,
   planeBase: PlaneBase,
+  omittedFixtureIds: readonly string[] = [],
 ): GameRuntime {
   const spawn = playerSpawn(planeBase);
   const maxHp = maxHpForCon(STARTING_PLAYER_STATE.attributes.con);
@@ -144,8 +148,6 @@ export function createRuntimeFromAccepted(
     player: {
       attributes: { ...STARTING_PLAYER_STATE.attributes },
       unspentAp: STARTING_PLAYER_STATE.unspentAp,
-      hp: STARTING_PLAYER_STATE.currentHp,
-      maxHp,
       currency: STARTING_PLAYER_STATE.currency,
       equipment: emptyEquipment(),
       inventory: STARTING_LOADOUT.inventory.map((stack) => ({ ...stack })),
@@ -161,6 +163,7 @@ export function createRuntimeFromAccepted(
     content: CONTENT_REGISTRY,
     save,
     currentPlaneBase: planeBase,
+    omittedFixtureIds,
   };
 }
 
@@ -169,11 +172,11 @@ export function createNewGame(version: string, seed: string, options: CreateNewG
   if (!world.ok) {
     throw new Error(`cannot create New Game: ${world.code}: ${world.message}`);
   }
-  const generated = generatePlaneBase(seed, world.topology, STARTING_PLANE, world.topology.generatorVersion);
-  if (!generated.ok) {
-    throw new Error(`starting plane unrealizable: ${generated.message}`);
+  const materialized = materializeRuntimePlane(world, STARTING_PLANE, options.materializePlane ?? options.generatePlane);
+  if (!materialized.ok) {
+    throw new Error(`starting plane unrealizable: ${materialized.message}`);
   }
-  return createRuntimeFromAccepted(world, generated.plane);
+  return createRuntimeFromAccepted(world, materialized.plane, materialized.omittedFixtureIds);
 }
 
 export function hashSaveState(save: SaveState): string {
