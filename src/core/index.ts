@@ -68,3 +68,11 @@ export type {
   PrimitiveResult,
 } from "./generation/plane-types";
 export type { SolverResult, SolverFailure, SolverSearchOptions, WitnessStep } from "./generation/solver-types";
+export { createNewGame, hashSaveState, playerActor } from "./runtime/game-runtime";
+export type { GameRuntime } from "./runtime/game-runtime";
+export { applyPlayerCommand } from "./rules/commands";
+export type { PlayerCommand, CommandResult } from "./rules/commands";
+export { advanceTick } from "./rules/tick";
+export type { TickResult } from "./rules/tick";
+export { initiativeOrder } from "./rules/initiative";
+export type { SaveState, IntentionalAction, Direction, ActorState } from "./model/save-state";
