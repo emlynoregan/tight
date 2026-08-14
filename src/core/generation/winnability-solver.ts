@@ -18,6 +18,7 @@ import {
   CONSUMING_ACTION_ORDER,
   type SolverFailure,
   type SolverResult,
+  type SolverSearchOptions,
   type SolverState,
   type UnsatisfiedGateSummary,
   type WitnessStep,
@@ -86,7 +87,12 @@ function itemKind(itemId: string): string | null {
   return CONTENT_REGISTRY.byId.item.get(itemId)?.kind ?? null;
 }
 
-function applyGrants(state: SolverState, grants: readonly string[], quantity: number): void {
+function applyGrants(
+  state: SolverState,
+  grants: readonly string[],
+  quantity: number,
+  options?: { readonly skipInventory?: boolean },
+): void {
   for (const grant of grants) {
     const token = parseToken(grant);
     if (!token) {
@@ -104,11 +110,15 @@ function applyGrants(state: SolverState, grants: readonly string[], quantity: nu
     } else if (token.kind === "currency") {
       state.currency += Number(token.value) * (quantity > 0 ? 1 : 0);
     } else if (token.kind === "resource") {
-      addResource(state, token.value, quantity);
+      if (!options?.skipInventory) {
+        addResource(state, token.value, quantity);
+      }
     } else if (token.kind === "item") {
       const kind = itemKind(token.value);
       if (kind === "resource") {
-        addResource(state, token.value, quantity);
+        if (!options?.skipInventory) {
+          addResource(state, token.value, quantity);
+        }
       } else if (kind === "currency") {
         state.currency += quantity;
       } else {
@@ -246,6 +256,181 @@ function occupiedSlots(state: SolverState): number {
   return slots;
 }
 
+function grantedResources(source: ProgressionSource): { id: string; amount: number }[] {
+  const granted: { id: string; amount: number }[] = [];
+  for (const grant of source.grants) {
+    const token = parseToken(grant);
+    if (!token) {
+      continue;
+    }
+    if (token.kind === "resource") {
+      granted.push({ id: token.value, amount: source.quantity });
+    } else if (token.kind === "item" && itemKind(token.value) === "resource") {
+      granted.push({ id: token.value, amount: source.quantity });
+    }
+  }
+  return granted;
+}
+
+function occupiesInventorySlots(source: ProgressionSource): boolean {
+  return grantedResources(source).length > 0;
+}
+
+function minDropToFreeSlots(resourceId: string, have: number, slotsNeeded: number): number | null {
+  if (have <= 0 || slotsNeeded <= 0) {
+    return null;
+  }
+  const stack = resourceStackSize(resourceId);
+  const currentSlots = Math.ceil(have / stack);
+  const targetSlots = currentSlots - slotsNeeded;
+  if (targetSlots <= 0) {
+    return have;
+  }
+  const maxKeep = targetSlots * stack;
+  const drop = have - maxKeep;
+  return drop > 0 ? drop : null;
+}
+
+function collectUseful(topology: WorldTopology, state: SolverState, source: ProgressionSource): boolean {
+  for (const granted of grantedResources(source)) {
+    if (resourceAmount(state, granted.id) < outstandingResourceCost(topology, state, granted.id)) {
+      return true;
+    }
+  }
+  return source.grants.some((grant) => {
+    const token = parseToken(grant);
+    return token?.kind === "flag" || token?.kind === "ability" || (token?.kind === "item" && itemKind(token.value) !== "resource");
+  });
+}
+
+function guardianIdFromSource(sourceId: string): string | null {
+  const prefix = "source.guardian_reward.";
+  return sourceId.startsWith(prefix) ? sourceId.slice(prefix.length) : null;
+}
+
+function questIdFromSource(sourceId: string): string | null {
+  const prefix = "source.quest_reward.";
+  return sourceId.startsWith(prefix) ? sourceId.slice(prefix.length) : null;
+}
+
+function resourcePickupReady(state: SolverState, source: ProgressionSource, topology: WorldTopology): boolean {
+  if (!occupiesInventorySlots(source) || !collectUseful(topology, state, source)) {
+    return false;
+  }
+  if (isConsumingSource(source) || state.collectedSources.has(source.id) || state.purchasedStock.has(source.id)) {
+    return false;
+  }
+  if (!planeReachable(state, source.plane) || !allRequirementsMet(state, source.requirements)) {
+    return false;
+  }
+  if (source.sourceType === "guardian_reward") {
+    const guardianId = guardianIdFromSource(source.id);
+    return guardianId !== null && state.defeatedGuardians.has(guardianId);
+  }
+  if (source.sourceType === "quest_reward") {
+    const questId = questIdFromSource(source.id);
+    return questId !== null && state.completedQuests.has(questId);
+  }
+  return true;
+}
+
+function greedyDiscardPlan(state: SolverState, overflow: number): Map<string, number> | null {
+  const drops = new Map<string, number>();
+  let remaining = overflow;
+  for (const resourceId of sortedIds(state.resources.keys())) {
+    const have = resourceAmount(state, resourceId);
+    const drop = minDropToFreeSlots(resourceId, have, remaining);
+    if (drop == null) {
+      continue;
+    }
+    const stack = resourceStackSize(resourceId);
+    const freed = Math.ceil(have / stack) - Math.ceil((have - drop) / stack);
+    drops.set(resourceId, drop);
+    remaining -= freed;
+    if (remaining <= 0) {
+      return drops;
+    }
+  }
+  return remaining <= 0 ? drops : null;
+}
+
+function annotateDiscard(state: SolverState, detail: string): void {
+  const last = state.witness.at(-1);
+  if (!last) {
+    return;
+  }
+  state.witness[state.witness.length - 1] = {
+    ...last,
+    detail: last.detail ? `${last.detail}|${detail}` : detail,
+  };
+}
+
+function expandForInventory(state: SolverState, action: ConsumingAction): ConsumingAction[] {
+  const preview = cloneState(state);
+  action.apply(preview);
+  const overflow = occupiedSlots(preview) - GLOBAL_CONSTANTS.ordinaryInventorySlots;
+  if (overflow <= 0) {
+    return [action];
+  }
+  const expanded: ConsumingAction[] = [];
+  for (const resourceId of sortedIds(state.resources.keys())) {
+    const drop = minDropToFreeSlots(resourceId, resourceAmount(state, resourceId), overflow);
+    if (drop == null) {
+      continue;
+    }
+    const trial = cloneState(state);
+    addResource(trial, resourceId, -drop);
+    action.apply(trial);
+    if (!inventoryFeasible(trial)) {
+      continue;
+    }
+    const discardDetail = `discard ${resourceId}:${drop}`;
+    expanded.push({
+      order: action.order,
+      id: `${action.id}|discard:${resourceId}:${drop}`,
+      apply(next) {
+        addResource(next, resourceId, -drop);
+        action.apply(next);
+        annotateDiscard(next, discardDetail);
+      },
+    });
+  }
+  const greedy = greedyDiscardPlan(state, overflow);
+  if (greedy && greedy.size > 1) {
+    const trial = cloneState(state);
+    for (const [resourceId, drop] of greedy) {
+      addResource(trial, resourceId, -drop);
+    }
+    action.apply(trial);
+    if (inventoryFeasible(trial)) {
+      const spec = [...greedy.entries()]
+        .sort((left, right) => compareStableIds(left[0], right[0]))
+        .map(([resourceId, drop]) => `${resourceId}:${drop}`)
+        .join(",");
+      const discardDetail = `discard ${spec}`;
+      expanded.push({
+        order: action.order,
+        id: `${action.id}|discard:${spec}`,
+        apply(next) {
+          for (const [resourceId, drop] of greedy) {
+            addResource(next, resourceId, -drop);
+          }
+          action.apply(next);
+          annotateDiscard(next, discardDetail);
+        },
+      });
+    }
+  }
+  return expanded;
+}
+
+function searchKey(state: SolverState): string {
+  const resources = sortedIds(state.resources.keys())
+    .map((id) => `${id}:${resourceAmount(state, id)}`)
+    .join(",");
+  return `${factSignature(state)}|${state.currency}|${resources}`;
+}
+
 export function canonicalizeSolverState(topology: WorldTopology, state: SolverState): SolverState {
   const next = cloneState(state);
   for (const [resourceId, quantity] of [...next.resources]) {
@@ -289,6 +474,9 @@ export function dominates(left: SolverState, right: SolverState): boolean {
   if (left.currency < right.currency) {
     return false;
   }
+  if (occupiedSlots(left) > occupiedSlots(right)) {
+    return false;
+  }
   const ids = new Set([...left.resources.keys(), ...right.resources.keys()]);
   for (const id of ids) {
     if (resourceAmount(left, id) < resourceAmount(right, id)) {
@@ -323,6 +511,9 @@ function collectFreeSources(state: SolverState, topology: WorldTopology): boolea
     if (source.sourceType === "guardian_reward" || source.sourceType === "quest_reward") {
       continue;
     }
+    if (occupiesInventorySlots(source)) {
+      continue;
+    }
     if (!planeReachable(state, source.plane) || !allRequirementsMet(state, source.requirements)) {
       continue;
     }
@@ -346,8 +537,12 @@ function defeatReachableGuardians(state: SolverState, topology: WorldTopology): 
     const rewardId = `source.guardian_reward.${guardian.id}`;
     const source = topology.progressionSources.find((row) => row.id === rewardId);
     if (source && !state.collectedSources.has(source.id)) {
-      state.collectedSources.add(source.id);
-      applyGrants(state, source.grants, source.quantity);
+      if (occupiesInventorySlots(source)) {
+        applyGrants(state, source.grants, source.quantity, { skipInventory: true });
+      } else {
+        state.collectedSources.add(source.id);
+        applyGrants(state, source.grants, source.quantity);
+      }
     }
     changed = true;
   }
@@ -369,9 +564,13 @@ function completeMonotoneQuests(state: SolverState, topology: WorldTopology): bo
       continue;
     }
     state.completedQuests.add(quest.id);
-    state.collectedSources.add(source.id);
     record(state, { type: "COMPLETE_QUEST", id: quest.id, plane: quest.plane });
-    applyGrants(state, source.grants, source.quantity);
+    if (occupiesInventorySlots(source)) {
+      applyGrants(state, source.grants, source.quantity, { skipInventory: true });
+    } else {
+      state.collectedSources.add(source.id);
+      applyGrants(state, source.grants, source.quantity);
+    }
     changed = true;
   }
   return changed;
@@ -551,19 +750,38 @@ function legalConsumingActions(state: SolverState, topology: WorldTopology): Con
         continue;
       }
     }
-    actions.push({
-      order: CONSUMING_ACTION_ORDER.shop_purchase,
-      id: source.id,
-      apply(next) {
-        next.currency -= price;
-        if (!source.unlimited) {
-          next.purchasedStock.add(source.id);
+    actions.push(
+      ...expandForInventory(state, {
+        order: CONSUMING_ACTION_ORDER.shop_purchase,
+        id: source.id,
+        apply(next) {
+          next.currency -= price;
+          if (!source.unlimited) {
+            next.purchasedStock.add(source.id);
+            next.collectedSources.add(source.id);
+          }
+          record(next, { type: "BUY_ITEM", id: source.id, detail: source.contentReference });
+          applyGrants(next, source.grants, source.quantity);
+        },
+      }),
+    );
+  }
+
+  for (const source of topology.progressionSources) {
+    if (!resourcePickupReady(state, source, topology)) {
+      continue;
+    }
+    actions.push(
+      ...expandForInventory(state, {
+        order: CONSUMING_ACTION_ORDER.collect_resource,
+        id: source.id,
+        apply(next) {
           next.collectedSources.add(source.id);
-        }
-        record(next, { type: "BUY_ITEM", id: source.id, detail: source.contentReference });
-        applyGrants(next, source.grants, source.quantity);
-      },
-    });
+          record(next, { type: "COLLECT_SOURCE", id: source.id, plane: source.plane });
+          applyGrants(next, source.grants, source.quantity);
+        },
+      }),
+    );
   }
 
   actions.sort((left, right) => left.order - right.order || compareStableIds(left.id, right.id));
@@ -726,7 +944,8 @@ function unsatisfiedReason(state: SolverState, topology: WorldTopology, gate: To
   return "unsatisfied";
 }
 
-export function proveWinnable(topology: WorldTopology): SolverResult {
+export function proveWinnable(topology: WorldTopology, options?: SolverSearchOptions): SolverResult {
+  const prune = options?.prune !== false;
   let start = initialState();
   start = closure(start, topology);
   start = canonicalizeSolverState(topology, start);
@@ -737,9 +956,11 @@ export function proveWinnable(topology: WorldTopology): SolverResult {
 
   const queue: SolverState[] = [];
   const frontier = new DominanceFrontier();
+  const seen = new Set<string>();
   if (inventoryFeasible(start)) {
     queue.push(start);
     frontier.add(start);
+    seen.add(searchKey(start));
   }
 
   let head = 0;
@@ -762,10 +983,17 @@ export function proveWinnable(topology: WorldTopology): SolverResult {
         appendVictory(next);
         return { ok: true, witness: next.witness };
       }
-      if (frontier.isDominated(next)) {
+      const key = searchKey(next);
+      if (seen.has(key)) {
         continue;
       }
-      frontier.removeDominatedBy(next);
+      if (prune && frontier.isDominated(next)) {
+        continue;
+      }
+      seen.add(key);
+      if (prune) {
+        frontier.removeDominatedBy(next);
+      }
       frontier.add(next);
       queue.push(next);
     }

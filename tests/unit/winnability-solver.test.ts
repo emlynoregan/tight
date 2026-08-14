@@ -494,3 +494,154 @@ describe("winnability solver", () => {
     expect(first).toEqual(second);
   });
 });
+
+const RESOURCE_IDS = ["herb", "ore", "crystal", "ectoplasm", "star_matter", "void_fragment", "divine_fragment"] as const;
+
+function resourceSource(id: string, resourceId: string, quantity: number, plane = START): ProgressionSource {
+  return source({
+    id,
+    plane,
+    sourceType: "container",
+    grants: [`resource:${resourceId}`],
+    requirements: [],
+    consumption: false,
+    contentReference: resourceId,
+    quantity,
+  });
+}
+
+function resourceGateRow(
+  id: string,
+  transitionId: string,
+  resourceId: string,
+  quantity: number,
+): TopologyGate {
+  return gate({
+    id,
+    transitionId,
+    progressionClass: "resource_gate",
+    requiredResourceId: resourceId,
+    requiredQuantity: quantity,
+  });
+}
+
+function agreesWithUnpruned(world: WorldTopology): void {
+  expect(proveWinnable(world).ok).toBe(proveWinnable(world, { prune: false }).ok);
+}
+
+describe("winnability solver inventory feasibility", () => {
+  it("passes when optional free loot exceeds 12 slots but the winning route needs a subset", () => {
+    const extras = RESOURCE_IDS.filter((id) => id !== "ore");
+    const extraPlanes: { a: 0; b: 2 | 3 | 4 | 5 | 6 | 7 }[] = [
+      { a: 0, b: 2 },
+      { a: 0, b: 3 },
+      { a: 0, b: 4 },
+      { a: 0, b: 5 },
+      { a: 0, b: 6 },
+      { a: 0, b: 7 },
+    ];
+    const world = topology({
+      planeNodes: [
+        { plane: START, dominantDimension: 1, family: "aboveground", progressionTier: 0 },
+        { plane: OLYMPUS, dominantDimension: 15, family: "olympus", progressionTier: 7 },
+        ...extraPlanes.map((plane) => ({
+          plane,
+          dominantDimension: plane.b,
+          family: "inside" as const,
+          progressionTier: 1,
+        })),
+      ],
+      transitions: [
+        transition("transition.ore", START, OLYMPUS, { gateId: "gate.ore", progressionClass: "resource_gate" }),
+        ...extraPlanes.map((plane, index) =>
+          transition(`transition.${extras[index]}`, START, plane, {
+            gateId: `gate.${extras[index]}`,
+            progressionClass: "resource_gate",
+          }),
+        ),
+      ],
+      gates: [
+        resourceGateRow("gate.ore", "transition.ore", "ore", 1),
+        ...extras.map((id) => resourceGateRow(`gate.${id}`, `transition.${id}`, id, 10)),
+      ],
+      progressionSources: [
+        resourceSource("source.container.ore", "ore", 10),
+        ...extras.map((id) => resourceSource(`source.container.${id}`, id, 10)),
+      ],
+    });
+    const result = proveWinnable(world);
+    expect(result.ok).toBe(true);
+    agreesWithUnpruned(world);
+  });
+
+  it("passes when a bulky useful resource can be discarded so a later resource fits", () => {
+    const dead = { a: 0 as const, b: 3 as const };
+    const world = topology({
+      planeNodes: [
+        { plane: START, dominantDimension: 1, family: "aboveground", progressionTier: 0 },
+        { plane: SIDE, dominantDimension: 2, family: "inside", progressionTier: 1 },
+        { plane: dead, dominantDimension: 3, family: "inside", progressionTier: 1 },
+        { plane: OLYMPUS, dominantDimension: 15, family: "olympus", progressionTier: 7 },
+      ],
+      transitions: [
+        transition("transition.side", START, SIDE, { gateId: "gate.side", progressionClass: "resource_gate" }),
+        transition("transition.dead", START, dead, { gateId: "gate.dead", progressionClass: "resource_gate" }),
+        transition("transition.olympus", SIDE, OLYMPUS, { gateId: "gate.olympus", progressionClass: "resource_gate" }),
+      ],
+      gates: [
+        resourceGateRow("gate.side", "transition.side", "ore", 1),
+        resourceGateRow("gate.dead", "transition.dead", "ore", 108),
+        resourceGateRow("gate.olympus", "transition.olympus", "crystal", 1),
+      ],
+      progressionSources: [
+        resourceSource("source.container.ore", "ore", 108),
+        resourceSource("source.container.crystal", "crystal", 1, SIDE),
+      ],
+    });
+    const result = proveWinnable(world);
+    expect(result.ok).toBe(true);
+    agreesWithUnpruned(world);
+  });
+
+  it("fails when a winning route would have to carry more than 12 slots at once", () => {
+    const world = topology({
+      transitions: [transition("transition.ore", START, OLYMPUS, { gateId: "gate.ore", progressionClass: "resource_gate" })],
+      gates: [resourceGateRow("gate.ore", "transition.ore", "ore", 109)],
+      progressionSources: [resourceSource("source.container.ore", "ore", 109)],
+    });
+    const result = proveWinnable(world);
+    expect(result.ok).toBe(false);
+    agreesWithUnpruned(world);
+  });
+
+  it("agrees with the unpruned reference solver on small inventory-pressure graphs", () => {
+    const extras = [0, 10, 108];
+    const needs = [1, 9, 10, 108, 109];
+    for (const need of needs) {
+      for (const extra of extras) {
+        const world = topology({
+          planeNodes: [
+            { plane: START, dominantDimension: 1, family: "aboveground", progressionTier: 0 },
+            { plane: SIDE, dominantDimension: 2, family: "inside", progressionTier: 1 },
+            { plane: OLYMPUS, dominantDimension: 15, family: "olympus", progressionTier: 7 },
+          ],
+          transitions: [
+            transition("transition.olympus", START, OLYMPUS, { gateId: "gate.olympus", progressionClass: "resource_gate" }),
+            ...(extra > 0
+              ? [transition("transition.side", START, SIDE, { gateId: "gate.side", progressionClass: "resource_gate" })]
+              : []),
+          ],
+          gates: [
+            resourceGateRow("gate.olympus", "transition.olympus", "ore", need),
+            ...(extra > 0 ? [resourceGateRow("gate.side", "transition.side", "herb", extra)] : []),
+          ],
+          progressionSources: [
+            resourceSource("source.container.ore", "ore", need),
+            ...(extra > 0 ? [resourceSource("source.container.herb", "herb", extra)] : []),
+          ],
+        });
+        agreesWithUnpruned(world);
+      }
+    }
+  });
+});

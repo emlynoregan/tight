@@ -64,6 +64,10 @@ export interface SolverFail {
   readonly failure: SolverFailure;
 }
 
+export interface SolverSearchOptions {
+  readonly prune?: boolean;
+}
+
 export type SolverResult = SolverPass | SolverFail;
 
 export const CONSUMING_ACTION_ORDER = {
@@ -71,4 +75,5 @@ export const CONSUMING_ACTION_ORDER = {
   consuming_quest: 2,
   shop_purchase: 3,
   consume_item: 4,
+  collect_resource: 5,
 } as const;

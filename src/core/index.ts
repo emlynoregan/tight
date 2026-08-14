@@ -38,4 +38,4 @@ export { proveWinnable } from "./generation/winnability-solver";
 export { potentialNeighbours, sharesExactlyOneDimension } from "./generation/topology-neighbours";
 export { planeEligibleForArchetype } from "./data/eligibility";
 export type { WorldTopology, TopologyGenerationResult } from "./generation/topology-types";
-export type { SolverResult, SolverFailure, WitnessStep } from "./generation/solver-types";
+export type { SolverResult, SolverFailure, SolverSearchOptions, WitnessStep } from "./generation/solver-types";
