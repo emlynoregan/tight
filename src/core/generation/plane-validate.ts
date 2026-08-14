@@ -80,25 +80,44 @@ export function interactionPoints(namedPoints: readonly NamedPoint[]): NamedPoin
   return namedPoints.filter((point) => INTERACTION_POINT_KINDS.has(point.kind));
 }
 
+function validateActorApproach(
+  input: PlaneValidationInput,
+  actor: NamedPoint,
+  actorMustBeOccupiable: boolean,
+  issues: PlaneValidationIssue[],
+): void {
+  const byId = new Map(input.namedPoints.map((point) => [point.id, point]));
+  const approach = byId.get(`${actor.id}.approach`);
+  if (!approach) {
+    issues.push({ validator: "required_points_occupiable", detail: `${actor.id} missing approach` });
+    return;
+  }
+  if (approach.x === actor.x && approach.y === actor.y) {
+    issues.push({ validator: "required_points_occupiable", detail: `${actor.id} approach is not distinct` });
+  }
+  const adjacent = new Set(orthogonalNeighbours(actor, input.wraps).map(cellKey));
+  if (!adjacent.has(cellKey(approach))) {
+    issues.push({ validator: "required_points_occupiable", detail: `${actor.id} approach is not adjacent` });
+  }
+  if (!isOccupiable(input.grid, approach)) {
+    issues.push({ validator: "required_points_occupiable", detail: `${approach.x},${approach.y}` });
+  }
+  if (actorMustBeOccupiable && !isOccupiable(input.grid, actor)) {
+    issues.push({ validator: "required_points_occupiable", detail: `${actor.id} spawn is not occupiable` });
+  }
+}
+
 function validateRequiredFixtures(input: PlaneValidationInput): PlaneValidationIssue[] {
   const issues: PlaneValidationIssue[] = [];
   const byId = new Map(input.namedPoints.map((point) => [point.id, point]));
   for (const source of input.namedPoints.filter((point) => point.kind === "source")) {
-    const approach = byId.get(`${source.id}.approach`);
-    if (!approach) {
-      issues.push({ validator: "required_points_occupiable", detail: `${source.id} missing approach` });
-      continue;
-    }
-    if (approach.x === source.x && approach.y === source.y) {
-      issues.push({ validator: "required_points_occupiable", detail: `${source.id} approach is not distinct` });
-    }
-    const adjacent = new Set(orthogonalNeighbours(source, input.wraps).map(cellKey));
-    if (!adjacent.has(cellKey(approach))) {
-      issues.push({ validator: "required_points_occupiable", detail: `${source.id} approach is not adjacent` });
-    }
-    if (!isOccupiable(input.grid, approach)) {
-      issues.push({ validator: "required_points_occupiable", detail: `${approach.x},${approach.y}` });
-    }
+    validateActorApproach(input, source, false, issues);
+  }
+  for (const guardian of input.namedPoints.filter((point) => point.kind === "guardian")) {
+    validateActorApproach(input, guardian, true, issues);
+  }
+  for (const npc of input.namedPoints.filter((point) => point.kind === "npc")) {
+    validateActorApproach(input, npc, true, issues);
   }
   for (const counter of input.namedPoints.filter((point) => point.kind === "counter")) {
     const prefix = counter.id.replace(/\.counter$/, "");

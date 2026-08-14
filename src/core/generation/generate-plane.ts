@@ -167,6 +167,31 @@ function chooseBlockingInteractable(
   return { object, approach };
 }
 
+function placeOccupiableActor(
+  ctx: PrimitiveContext,
+  grid: PlaneGrid,
+  wraps: boolean,
+  reserved: Set<string>,
+  baseTile: string,
+  namedPoints: NamedPoint[],
+  placementFailures: PlaneValidationIssue[],
+  id: string,
+  kind: string,
+  tag: string,
+): void {
+  const placed = chooseBlockingInteractable(ctx, grid, wraps, reserved, tag);
+  if (!placed) {
+    placementFailures.push({ validator: "required_fixture_unplaced", detail: id });
+    return;
+  }
+  grid.terrain[placed.object.y]![placed.object.x] = baseTile;
+  grid.terrain[placed.approach.y]![placed.approach.x] = baseTile;
+  namedPoints.push({ id, kind, x: placed.object.x, y: placed.object.y });
+  namedPoints.push({ id: `${id}.approach`, kind: "approach", x: placed.approach.x, y: placed.approach.y });
+  reserve(reserved, placed.object);
+  reserve(reserved, placed.approach);
+}
+
 function chooseShopGeometry(
   ctx: PrimitiveContext,
   grid: PlaneGrid,
@@ -356,6 +381,21 @@ export function generatePlaneBase(
     reserve(reserved, placed.counter);
     reserve(reserved, placed.shopkeeper);
     reserve(reserved, placed.customer);
+  });
+
+  const shopkeeperNpcIds = new Set(
+    topology.shopInstances.filter((shop) => shop.npcInstanceId).map((shop) => shop.npcInstanceId!),
+  );
+  const npcs = topology.npcInstances.filter((npc) => planesEqual(npc.plane, plane) && !shopkeeperNpcIds.has(npc.id));
+  npcs.forEach((npc, index) => {
+    const ctx = context(generatorVersion, worldSeed, plane, "npcs", npc.id, index);
+    placeOccupiableActor(ctx, grid, wraps, reserved, baseTile, namedPoints, placementFailures, npc.id, "npc", "npc");
+  });
+
+  const guardians = topology.guardianInstances.filter((guardian) => planesEqual(guardian.plane, plane));
+  guardians.forEach((guardian, index) => {
+    const ctx = context(generatorVersion, worldSeed, plane, "encounters", guardian.id, index);
+    placeOccupiableActor(ctx, grid, wraps, reserved, baseTile, namedPoints, placementFailures, guardian.id, "guardian", "guardian");
   });
 
   return finalizePlaneGeometry({

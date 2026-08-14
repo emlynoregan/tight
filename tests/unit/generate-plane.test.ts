@@ -269,6 +269,67 @@ describe("plane generation", () => {
     expect(plane.planeHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("places an occupiable guardian spawn with a distinct reachable approach", () => {
+    const world = topology({
+      transitions: [transition("transition.open", STARTING_PLANE, OLYMPUS_PLANE)],
+      guardianInstances: [
+        {
+          id: "guardian.start",
+          encounterId: "guardian_stone",
+          monsterId: "golem_warden",
+          plane: STARTING_PLANE,
+          gatedTransitionId: null,
+        },
+      ],
+    });
+    const plane = requirePlane(generatePlaneBase("seed-guardian", world, STARTING_PLANE));
+    const spawn = plane.namedPoints.find((point) => point.id === "guardian.start" && point.kind === "guardian");
+    const approach = plane.namedPoints.find((point) => point.id === "guardian.start.approach");
+    expect(spawn).toBeDefined();
+    expect(approach).toBeDefined();
+    expect(spawn!.x === approach!.x && spawn!.y === approach!.y).toBe(false);
+    expect(Math.abs(spawn!.x - approach!.x) + Math.abs(spawn!.y - approach!.y)).toBe(1);
+    expect(plane.features[spawn!.y]![spawn!.x]).toBeNull();
+    expect(plane.features[approach!.y]![approach!.x]).toBeNull();
+    const cells = [
+      { x: spawn!.x, y: spawn!.y },
+      { x: approach!.x, y: approach!.y },
+      ...plane.namedPoints.filter((point) => point.kind === "transition").map((point) => ({ x: point.x, y: point.y })),
+    ];
+    expect(requiredConnected(occupancyGrid(plane), cells, false)).toBe(true);
+  });
+
+  it("places an occupiable NPC spawn with a distinct reachable approach", () => {
+    const world = topology({
+      transitions: [transition("transition.open", STARTING_PLANE, OLYMPUS_PLANE)],
+      npcInstances: [{ id: "npc.mara.start", npcId: "mara_guide", plane: STARTING_PLANE }],
+    });
+    const plane = requirePlane(generatePlaneBase("seed-npc", world, STARTING_PLANE));
+    const spawn = plane.namedPoints.find((point) => point.id === "npc.mara.start" && point.kind === "npc");
+    const approach = plane.namedPoints.find((point) => point.id === "npc.mara.start.approach");
+    expect(spawn).toBeDefined();
+    expect(approach).toBeDefined();
+    expect(Math.abs(spawn!.x - approach!.x) + Math.abs(spawn!.y - approach!.y)).toBe(1);
+    const cells = [
+      { x: spawn!.x, y: spawn!.y },
+      { x: approach!.x, y: approach!.y },
+      ...plane.namedPoints.filter((point) => point.kind === "transition").map((point) => ({ x: point.x, y: point.y })),
+    ];
+    expect(requiredConnected(occupancyGrid(plane), cells, false)).toBe(true);
+  });
+
+  it("does not duplicate shopkeeper NPC geometry beside an existing shop", () => {
+    const world = topology({
+      transitions: [transition("transition.open", STARTING_PLANE, OLYMPUS_PLANE)],
+      npcInstances: [{ id: "npc.shopkeeper.start", npcId: "mara_guide", plane: STARTING_PLANE }],
+      shopInstances: [{ ...shop("shop.start", STARTING_PLANE), npcInstanceId: "npc.shopkeeper.start" }],
+    });
+    const plane = requirePlane(generatePlaneBase("seed-shopkeeper-npc", world, STARTING_PLANE));
+    expect(plane.namedPoints.some((point) => point.id === "npc.shopkeeper.start")).toBe(false);
+    expect(plane.namedPoints.some((point) => point.kind === "shopkeeper")).toBe(true);
+    expect(plane.namedPoints.some((point) => point.kind === "customer")).toBe(true);
+  });
+
   it("returns explicit geometry failure instead of a hashed PlaneBase", () => {
     const grid: PlaneGrid = {
       terrain: emptyGrid("grass"),

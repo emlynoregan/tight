@@ -7,7 +7,7 @@ import type { PlaneGenerationResult } from "./plane-types";
 import { resolveProgressionOutcomes } from "./resolve-progression";
 import type { SolverResult, WitnessStep } from "./solver-types";
 import { generateTopology } from "./topology-generator";
-import type { ProgressionSource, ShopInstance, WorldTopology } from "./topology-types";
+import type { ProgressionSource, QuestInstance, ShopInstance, WorldTopology } from "./topology-types";
 import { proveWinnable } from "./winnability-solver";
 
 export type PlaneGenerateFn = (
@@ -94,6 +94,9 @@ export interface ProofRequiredFixtures {
   readonly transitionIds: ReadonlySet<string>;
   readonly sourceIds: ReadonlySet<string>;
   readonly shopIds: ReadonlySet<string>;
+  readonly guardianIds: ReadonlySet<string>;
+  readonly questIds: ReadonlySet<string>;
+  readonly npcIds: ReadonlySet<string>;
 }
 
 function shopIdForStockSource(source: ProgressionSource, shops: readonly ShopInstance[]): string | null {
@@ -107,11 +110,21 @@ function shopIdForStockSource(source: ProgressionSource, shops: readonly ShopIns
   return [...matches].sort((left, right) => right.id.length - left.id.length)[0]!.id;
 }
 
+function addQuestNpc(npcIds: Set<string>, quest: QuestInstance | undefined): void {
+  if (quest?.npcId) {
+    npcIds.add(quest.npcId);
+  }
+}
+
 export function proofRequiredFixtures(topology: WorldTopology, witness: readonly WitnessStep[]): ProofRequiredFixtures {
   const transitionIds = new Set<string>();
   const sourceIds = new Set<string>();
   const shopIds = new Set<string>();
+  const guardianIds = new Set<string>();
+  const questIds = new Set<string>();
+  const npcIds = new Set<string>();
   const gatesById = new Map(topology.gates.map((gate) => [gate.id, gate]));
+  const questsById = new Map(topology.questInstances.map((quest) => [quest.id, quest]));
   for (const step of witness) {
     if (step.type === "TRAVERSE_TRANSITION" && step.id) {
       transitionIds.add(step.id);
@@ -125,6 +138,13 @@ export function proofRequiredFixtures(topology: WorldTopology, witness: readonly
     if ((step.type === "COLLECT_SOURCE" || step.type === "BUY_ITEM") && step.id) {
       sourceIds.add(step.id);
     }
+    if (step.type === "DEFEAT_GUARDIAN" && step.id) {
+      guardianIds.add(step.id);
+    }
+    if (step.type === "COMPLETE_QUEST" && step.id) {
+      questIds.add(step.id);
+      addQuestNpc(npcIds, questsById.get(step.id));
+    }
   }
   for (const source of topology.progressionSources) {
     if (!sourceIds.has(source.id)) {
@@ -135,7 +155,12 @@ export function proofRequiredFixtures(topology: WorldTopology, witness: readonly
       shopIds.add(shopId);
     }
   }
-  return { transitionIds, sourceIds, shopIds };
+  for (const shop of topology.shopInstances) {
+    if (shopIds.has(shop.id) && shop.npcInstanceId) {
+      npcIds.add(shop.npcInstanceId);
+    }
+  }
+  return { transitionIds, sourceIds, shopIds, guardianIds, questIds, npcIds };
 }
 
 export function witnessPreflightTopology(topology: WorldTopology, witness: readonly WitnessStep[]): WorldTopology {
@@ -145,6 +170,9 @@ export function witnessPreflightTopology(topology: WorldTopology, witness: reado
     transitions: topology.transitions.filter((row) => proof.transitionIds.has(row.id)),
     progressionSources: topology.progressionSources.filter((row) => proof.sourceIds.has(row.id)),
     shopInstances: topology.shopInstances.filter((row) => proof.shopIds.has(row.id)),
+    guardianInstances: topology.guardianInstances.filter((row) => proof.guardianIds.has(row.id)),
+    questInstances: topology.questInstances.filter((row) => proof.questIds.has(row.id)),
+    npcInstances: topology.npcInstances.filter((row) => proof.npcIds.has(row.id)),
   };
 }
 

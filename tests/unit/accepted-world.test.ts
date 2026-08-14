@@ -62,9 +62,30 @@ function nonWitnessFixtures(topology: ReturnType<typeof attemptZeroProof>["topol
       !proof.transitionIds.has(row.id) &&
       (planes.has(planeKey(row.sourcePlane)) || planes.has(planeKey(row.destinationPlane))),
   );
+  const extraGuardian = topology.guardianInstances.find((row) => !proof.guardianIds.has(row.id) && planes.has(planeKey(row.plane)));
+  const extraQuest = topology.questInstances.find((row) => !proof.questIds.has(row.id) && planes.has(planeKey(row.plane)));
+  const extraNpc = topology.npcInstances.find((row) => !proof.npcIds.has(row.id) && planes.has(planeKey(row.plane)));
   const witnessSource = topology.progressionSources.find((source) => proof.sourceIds.has(source.id));
   const witnessTransition = topology.transitions.find((row) => proof.transitionIds.has(row.id));
-  return { proof, extraSource, extraShop, extraTransition, witnessSource, witnessTransition };
+  const witnessGuardian = topology.guardianInstances.find((row) => proof.guardianIds.has(row.id));
+  const witnessQuest = topology.questInstances.find((row) => proof.questIds.has(row.id));
+  return {
+    proof,
+    extraSource,
+    extraShop,
+    extraTransition,
+    extraGuardian,
+    extraQuest,
+    extraNpc,
+    witnessSource,
+    witnessTransition,
+    witnessGuardian,
+    witnessQuest,
+  };
+}
+
+function namedFixturePresent(points: readonly { id: string }[], id: string): boolean {
+  return points.some((point) => point.id === id || point.id.startsWith(`${id}.`) || point.id === `transition.${id}`);
 }
 
 describe("accepted world pipeline", () => {
@@ -261,10 +282,217 @@ describe("accepted world pipeline", () => {
       throw new Error("expected both generations to succeed");
     }
     const extraId = extra!.id;
-    expect(scoped.plane.namedPoints.some((point) => point.id === extraId || point.id.startsWith(`${extraId}.`))).toBe(false);
-    expect(
-      full.plane.namedPoints.some((point) => point.id === extraId || point.id.startsWith(`${extraId}.`) || point.id === `transition.${extraId}`),
-    ).toBe(true);
+    expect(namedFixturePresent(scoped.plane.namedPoints, extraId)).toBe(false);
+    expect(namedFixturePresent(full.plane.namedPoints, extraId)).toBe(true);
+  });
+
+  it("preflights proof-required guardian spawn and approach geometry", () => {
+    const world = requireWorld("tight-v1", "0");
+    const step = world.witness.find((row) => row.type === "DEFEAT_GUARDIAN");
+    expect(step?.id).toBeDefined();
+    const proof = proofRequiredFixtures(world.topology, world.witness);
+    expect(proof.guardianIds.has(step!.id!)).toBe(true);
+    const scoped = witnessPreflightTopology(world.topology, world.witness);
+    expect(scoped.guardianInstances.some((row) => row.id === step!.id)).toBe(true);
+    expect(scoped.guardianInstances.every((row) => proof.guardianIds.has(row.id))).toBe(true);
+    const guardian = world.topology.guardianInstances.find((row) => row.id === step!.id)!;
+    const generated = generatePlaneBase("0", scoped, guardian.plane);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) {
+      throw new Error(generated.message);
+    }
+    const spawn = generated.plane.namedPoints.find((point) => point.id === guardian.id && point.kind === "guardian");
+    const approach = generated.plane.namedPoints.find((point) => point.id === `${guardian.id}.approach`);
+    expect(spawn).toBeDefined();
+    expect(approach).toBeDefined();
+    expect(spawn!.x === approach!.x && spawn!.y === approach!.y).toBe(false);
+  });
+
+  it("rejects when proof-required guardian geometry is unrealizable", () => {
+    const seed = "0";
+    const { topology, witness } = attemptZeroProof(seed);
+    const { witnessGuardian } = nonWitnessFixtures(topology, witness);
+    expect(witnessGuardian).toBeDefined();
+    const result = getAcceptedWorld("tight-v1", seed, {
+      generatePlane: (worldSeed, scoped, plane) => {
+        if (scoped.topologyAttempt === 0 && scoped.guardianInstances.some((row) => row.id === witnessGuardian!.id)) {
+          return failPlane(plane);
+        }
+        return generatePlaneBase(worldSeed, scoped, plane);
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    expect(result.acceptedAttempt).toBeGreaterThan(0);
+    expect(result.rejectedAttempts[0]?.code).toBe("TOPOLOGY_REALIZATION_FAILURE");
+  });
+
+  it("does not let a non-witness guardian on a witness plane change the accepted attempt", () => {
+    const seed = "0";
+    const { topology, witness } = attemptZeroProof(seed);
+    const { extraGuardian } = nonWitnessFixtures(topology, witness);
+    const extra = extraGuardian ?? {
+      id: "guardian.nonwitness.test",
+      encounterId: "guardian_stone",
+      monsterId: "golem_warden",
+      plane: STARTING_PLANE,
+      gatedTransitionId: null,
+    };
+    const padded = extraGuardian ? topology : { ...topology, guardianInstances: [...topology.guardianInstances, extra] };
+    const scoped = witnessPreflightTopology(padded, witness);
+    expect(scoped.guardianInstances.some((row) => row.id === extra.id)).toBe(false);
+    expect(padded.guardianInstances.some((row) => row.id === extra.id)).toBe(true);
+    const baseline = requireWorld("tight-v1", seed);
+    const result = getAcceptedWorld("tight-v1", seed, {
+      generatePlane: (worldSeed, scopedTopology, plane) => {
+        if (scopedTopology.guardianInstances.some((row) => row.id === extra.id)) {
+          return failPlane(plane);
+        }
+        return generatePlaneBase(worldSeed, scopedTopology, plane);
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    expect(result.acceptedAttempt).toBe(baseline.acceptedAttempt);
+    expect(result.topologyHash).toBe(baseline.topologyHash);
+    const scopedPlane = generatePlaneBase(seed, scoped, extra.plane);
+    const fullPlane = generatePlaneBase(seed, padded, extra.plane);
+    expect(scopedPlane.ok).toBe(true);
+    expect(fullPlane.ok).toBe(true);
+    if (!scopedPlane.ok || !fullPlane.ok) {
+      throw new Error("expected guardian plane generation to succeed");
+    }
+    expect(namedFixturePresent(scopedPlane.plane.namedPoints, extra.id)).toBe(false);
+    expect(namedFixturePresent(fullPlane.plane.namedPoints, extra.id)).toBe(true);
+  });
+
+  it("preflights proof-required quest and NPC interaction geometry", () => {
+    const world = requireWorld("tight-v1", "0");
+    const step = world.witness.find((row) => row.type === "COMPLETE_QUEST");
+    expect(step?.id).toBeDefined();
+    const proof = proofRequiredFixtures(world.topology, world.witness);
+    expect(proof.questIds.has(step!.id!)).toBe(true);
+    const scoped = witnessPreflightTopology(world.topology, world.witness);
+    expect(scoped.questInstances.some((row) => row.id === step!.id)).toBe(true);
+    const shopkeeperIds = new Set(world.topology.shopInstances.map((shop) => shop.npcInstanceId).filter((id): id is string => Boolean(id)));
+    const quest = world.topology.questInstances.find((row) => proof.questIds.has(row.id) && row.npcId && !shopkeeperIds.has(row.npcId));
+    expect(quest?.npcId).toBeTruthy();
+    expect(proof.npcIds.has(quest!.npcId!)).toBe(true);
+    expect(scoped.npcInstances.some((row) => row.id === quest!.npcId)).toBe(true);
+    const generated = generatePlaneBase("0", scoped, quest!.plane);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) {
+      throw new Error(generated.message);
+    }
+    const spawn = generated.plane.namedPoints.find((point) => point.id === quest!.npcId && point.kind === "npc");
+    const approach = generated.plane.namedPoints.find((point) => point.id === `${quest!.npcId}.approach`);
+    expect(spawn).toBeDefined();
+    expect(approach).toBeDefined();
+    expect(spawn!.x === approach!.x && spawn!.y === approach!.y).toBe(false);
+  });
+
+  it("rejects proof-required quest NPC geometry and ignores unrelated quest/NPC fixtures", () => {
+    const seed = "0";
+    const { topology, witness } = attemptZeroProof(seed);
+    const { witnessQuest, extraQuest, extraNpc } = nonWitnessFixtures(topology, witness);
+    const shopkeeperIds = new Set(topology.shopInstances.map((shop) => shop.npcInstanceId).filter((id): id is string => Boolean(id)));
+    const requiredQuest =
+      witnessQuest?.npcId && !shopkeeperIds.has(witnessQuest.npcId)
+        ? witnessQuest
+        : topology.questInstances.find((row) => {
+            const proof = proofRequiredFixtures(topology, witness);
+            return proof.questIds.has(row.id) && row.npcId && !shopkeeperIds.has(row.npcId);
+          });
+    expect(requiredQuest?.npcId).toBeTruthy();
+    const requiredNpcId = requiredQuest!.npcId!;
+    const failingRequired = getAcceptedWorld("tight-v1", seed, {
+      generatePlane: (worldSeed, scoped, plane) => {
+        if (scoped.topologyAttempt === 0 && scoped.npcInstances.some((row) => row.id === requiredNpcId)) {
+          return failPlane(plane);
+        }
+        return generatePlaneBase(worldSeed, scoped, plane);
+      },
+    });
+    expect(failingRequired.ok).toBe(true);
+    if (!failingRequired.ok) {
+      throw new Error(failingRequired.message);
+    }
+    expect(failingRequired.acceptedAttempt).toBeGreaterThan(0);
+    expect(failingRequired.rejectedAttempts[0]?.code).toBe("TOPOLOGY_REALIZATION_FAILURE");
+
+    const extraQuestRow = extraQuest ?? {
+      id: "quest.nonwitness.test",
+      questId: "q_arcane_gate",
+      plane: STARTING_PLANE,
+      npcId: extraNpc?.id ?? "npc.nonwitness.test",
+      flagIds: [],
+    };
+    const extraNpcRow = extraNpc ?? {
+      id: extraQuestRow.npcId ?? "npc.nonwitness.test",
+      npcId: "mara_guide",
+      plane: STARTING_PLANE,
+    };
+    const padded = {
+      ...topology,
+      questInstances: extraQuest ? topology.questInstances : [...topology.questInstances, extraQuestRow],
+      npcInstances: extraNpc ? topology.npcInstances : [...topology.npcInstances, extraNpcRow],
+    };
+    const scoped = witnessPreflightTopology(padded, witness);
+    expect(scoped.questInstances.some((row) => row.id === extraQuestRow.id)).toBe(false);
+    expect(scoped.npcInstances.some((row) => row.id === extraNpcRow.id)).toBe(false);
+    const baseline = requireWorld("tight-v1", seed);
+    const ignored = getAcceptedWorld("tight-v1", seed, {
+      generatePlane: (worldSeed, scopedTopology, plane) => {
+        if (
+          scopedTopology.questInstances.some((row) => row.id === extraQuestRow.id) ||
+          scopedTopology.npcInstances.some((row) => row.id === extraNpcRow.id)
+        ) {
+          return failPlane(plane);
+        }
+        return generatePlaneBase(worldSeed, scopedTopology, plane);
+      },
+    });
+    expect(ignored.ok).toBe(true);
+    if (!ignored.ok) {
+      throw new Error(ignored.message);
+    }
+    expect(ignored.acceptedAttempt).toBe(baseline.acceptedAttempt);
+    expect(ignored.topologyHash).toBe(baseline.topologyHash);
+  });
+
+  it("keeps non-witness guardian, quest and NPC objects on the accepted topology", () => {
+    const world = requireWorld("tight-v1", "0");
+    const proof = proofRequiredFixtures(world.topology, world.witness);
+    const extraGuardian = world.topology.guardianInstances.find((row) => !proof.guardianIds.has(row.id));
+    const extraQuest = world.topology.questInstances.find((row) => !proof.questIds.has(row.id));
+    const extraNpc = world.topology.npcInstances.find((row) => !proof.npcIds.has(row.id));
+    expect(extraGuardian ?? extraQuest ?? extraNpc).toBeDefined();
+    const scoped = witnessPreflightTopology(world.topology, world.witness);
+    expect(scoped.guardianInstances.every((row) => proof.guardianIds.has(row.id))).toBe(true);
+    expect(scoped.questInstances.every((row) => proof.questIds.has(row.id))).toBe(true);
+    expect(scoped.npcInstances.every((row) => proof.npcIds.has(row.id))).toBe(true);
+    if (extraGuardian) {
+      expect(world.topology.guardianInstances.some((row) => row.id === extraGuardian.id)).toBe(true);
+      expect(scoped.guardianInstances.some((row) => row.id === extraGuardian.id)).toBe(false);
+    }
+    if (extraQuest) {
+      expect(world.topology.questInstances.some((row) => row.id === extraQuest.id)).toBe(true);
+      expect(scoped.questInstances.some((row) => row.id === extraQuest.id)).toBe(false);
+    }
+    if (extraNpc) {
+      expect(world.topology.npcInstances.some((row) => row.id === extraNpc.id)).toBe(true);
+      expect(scoped.npcInstances.some((row) => row.id === extraNpc.id)).toBe(false);
+      const full = generatePlaneBase("0", world.topology, extraNpc.plane);
+      expect(full.ok).toBe(true);
+      if (!full.ok) {
+        throw new Error(full.message);
+      }
+      expect(namedFixturePresent(full.plane.namedPoints, extraNpc.id)).toBe(true);
+    }
   });
 
   it("records a deterministic regression corpus", () => {
@@ -294,7 +522,7 @@ describe("accepted world pipeline", () => {
         ],
         preflightPlaneCount: 116,
         startPlaneHash: "cb7dfca91190b0bbad6477ca908c58008b85e79f67bf0405e03c3906b4b2476d",
-        olympusPlaneHash: "2dd7ee3450157270a23653bac720bb8935b85f00e7fc9a781994fbdb7cc1cdbd",
+        olympusPlaneHash: "74263c3e9965882bd593daa0dcb880e73e3480916ad63fbaaf6a009f4b1c9727",
         rejectedAttemptCount: 0,
       },
       {
