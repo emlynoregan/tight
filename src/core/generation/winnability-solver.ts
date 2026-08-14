@@ -245,15 +245,18 @@ function resourceStackSize(resourceId: string): number {
   return size > 0 ? size : 1;
 }
 
-function occupiedSlots(state: SolverState): number {
+function mapOccupiedSlots(resources: Map<string, number>): number {
   let slots = 0;
-  for (const [resourceId, quantity] of state.resources) {
-    if (quantity <= 0) {
-      continue;
+  for (const [resourceId, quantity] of resources) {
+    if (quantity > 0) {
+      slots += Math.ceil(quantity / resourceStackSize(resourceId));
     }
-    slots += Math.ceil(quantity / resourceStackSize(resourceId));
   }
   return slots;
+}
+
+function occupiedSlots(state: SolverState): number {
+  return mapOccupiedSlots(state.resources);
 }
 
 function grantedResources(source: ProgressionSource): { id: string; amount: number }[] {
@@ -334,24 +337,54 @@ function resourcePickupReady(state: SolverState, source: ProgressionSource, topo
   return true;
 }
 
-function greedyDiscardPlan(state: SolverState, overflow: number): Map<string, number> | null {
-  const drops = new Map<string, number>();
-  let remaining = overflow;
-  for (const resourceId of sortedIds(state.resources.keys())) {
-    const have = resourceAmount(state, resourceId);
-    const drop = minDropToFreeSlots(resourceId, have, remaining);
+function slotFreeOptions(resourceId: string, have: number): { drop: number; freed: number }[] {
+  const options = [{ drop: 0, freed: 0 }];
+  const stack = resourceStackSize(resourceId);
+  const currentSlots = Math.ceil(have / stack);
+  for (let freed = 1; freed <= currentSlots; freed += 1) {
+    const drop = minDropToFreeSlots(resourceId, have, freed);
     if (drop == null) {
       continue;
     }
-    const stack = resourceStackSize(resourceId);
-    const freed = Math.ceil(have / stack) - Math.ceil((have - drop) / stack);
-    drops.set(resourceId, drop);
-    remaining -= freed;
-    if (remaining <= 0) {
-      return drops;
-    }
+    options.push({ drop, freed });
   }
-  return remaining <= 0 ? drops : null;
+  return options;
+}
+
+function discardPlanSpec(plan: Map<string, number>): string {
+  return [...plan.entries()]
+    .sort((left, right) => compareStableIds(left[0], right[0]))
+    .map(([resourceId, drop]) => `${resourceId}:${drop}`)
+    .join(",");
+}
+
+function enumerateDiscardPlans(state: SolverState, overflow: number): Map<string, number>[] {
+  const ids = sortedIds(state.resources.keys()).filter((id) => resourceAmount(state, id) > 0);
+  const plans: Map<string, number>[] = [];
+  const seen = new Set<string>();
+  const walk = (index: number, remaining: number, acc: Map<string, number>): void => {
+    if (index >= ids.length) {
+      if (remaining <= 0 && acc.size > 0) {
+        const spec = discardPlanSpec(acc);
+        if (!seen.has(spec)) {
+          seen.add(spec);
+          plans.push(new Map(acc));
+        }
+      }
+      return;
+    }
+    const resourceId = ids[index]!;
+    for (const option of slotFreeOptions(resourceId, resourceAmount(state, resourceId))) {
+      const next = new Map(acc);
+      if (option.drop > 0) {
+        next.set(resourceId, option.drop);
+      }
+      walk(index + 1, remaining - option.freed, next);
+    }
+  };
+  walk(0, overflow, new Map());
+  plans.sort((left, right) => compareStableIds(discardPlanSpec(left), discardPlanSpec(right)));
+  return plans;
 }
 
 function annotateDiscard(state: SolverState, detail: string): void {
@@ -365,6 +398,30 @@ function annotateDiscard(state: SolverState, detail: string): void {
   };
 }
 
+function resourceVectorDominates(left: Map<string, number>, right: Map<string, number>): boolean {
+  const ids = new Set([...left.keys(), ...right.keys()]);
+  let better = false;
+  for (const id of ids) {
+    const haveLeft = left.get(id) ?? 0;
+    const haveRight = right.get(id) ?? 0;
+    if (haveLeft < haveRight) {
+      return false;
+    }
+    if (haveLeft > haveRight) {
+      better = true;
+    }
+  }
+  const leftSlots = mapOccupiedSlots(left);
+  const rightSlots = mapOccupiedSlots(right);
+  if (leftSlots > rightSlots) {
+    return false;
+  }
+  if (leftSlots < rightSlots) {
+    better = true;
+  }
+  return better;
+}
+
 function expandForInventory(state: SolverState, action: ConsumingAction): ConsumingAction[] {
   const preview = cloneState(state);
   action.apply(preview);
@@ -372,56 +429,39 @@ function expandForInventory(state: SolverState, action: ConsumingAction): Consum
   if (overflow <= 0) {
     return [action];
   }
-  const expanded: ConsumingAction[] = [];
-  for (const resourceId of sortedIds(state.resources.keys())) {
-    const drop = minDropToFreeSlots(resourceId, resourceAmount(state, resourceId), overflow);
-    if (drop == null) {
-      continue;
-    }
+  const candidates: { plan: Map<string, number>; resources: Map<string, number> }[] = [];
+  for (const plan of enumerateDiscardPlans(state, overflow)) {
     const trial = cloneState(state);
-    addResource(trial, resourceId, -drop);
+    for (const [resourceId, drop] of plan) {
+      addResource(trial, resourceId, -drop);
+    }
     action.apply(trial);
     if (!inventoryFeasible(trial)) {
       continue;
     }
-    const discardDetail = `discard ${resourceId}:${drop}`;
-    expanded.push({
+    candidates.push({ plan, resources: new Map(trial.resources) });
+  }
+  const pareto = candidates.filter(
+    (candidate, index) =>
+      !candidates.some(
+        (other, otherIndex) => otherIndex !== index && resourceVectorDominates(other.resources, candidate.resources),
+      ),
+  );
+  return pareto.map(({ plan }) => {
+    const spec = discardPlanSpec(plan);
+    const discardDetail = `discard ${spec}`;
+    return {
       order: action.order,
-      id: `${action.id}|discard:${resourceId}:${drop}`,
-      apply(next) {
-        addResource(next, resourceId, -drop);
+      id: `${action.id}|discard:${spec}`,
+      apply(next: SolverState) {
+        for (const [resourceId, drop] of plan) {
+          addResource(next, resourceId, -drop);
+        }
         action.apply(next);
         annotateDiscard(next, discardDetail);
       },
-    });
-  }
-  const greedy = greedyDiscardPlan(state, overflow);
-  if (greedy && greedy.size > 1) {
-    const trial = cloneState(state);
-    for (const [resourceId, drop] of greedy) {
-      addResource(trial, resourceId, -drop);
-    }
-    action.apply(trial);
-    if (inventoryFeasible(trial)) {
-      const spec = [...greedy.entries()]
-        .sort((left, right) => compareStableIds(left[0], right[0]))
-        .map(([resourceId, drop]) => `${resourceId}:${drop}`)
-        .join(",");
-      const discardDetail = `discard ${spec}`;
-      expanded.push({
-        order: action.order,
-        id: `${action.id}|discard:${spec}`,
-        apply(next) {
-          for (const [resourceId, drop] of greedy) {
-            addResource(next, resourceId, -drop);
-          }
-          action.apply(next);
-          annotateDiscard(next, discardDetail);
-        },
-      });
-    }
-  }
-  return expanded;
+    };
+  });
 }
 
 function searchKey(state: SolverState): string {

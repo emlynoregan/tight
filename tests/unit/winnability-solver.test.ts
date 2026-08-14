@@ -6,6 +6,7 @@ import type {
   TopologyGate,
   TopologyTransition,
 } from "../../src/core/generation/topology-types";
+import { exhaustiveInventoryReferenceWins } from "./exhaustive-inventory-reference";
 
 const START = STARTING_PLANE;
 const OLYMPUS = OLYMPUS_PLANE;
@@ -529,6 +530,96 @@ function agreesWithUnpruned(world: WorldTopology): void {
   expect(proveWinnable(world).ok).toBe(proveWinnable(world, { prune: false }).ok);
 }
 
+function agreesWithExhaustiveReference(world: WorldTopology): void {
+  expect(proveWinnable(world).ok).toBe(exhaustiveInventoryReferenceWins(world));
+}
+
+function flagId(resourceId: string): string {
+  return `flag.collect.${resourceId}`;
+}
+
+function planeAt(b: 2 | 3 | 4 | 5 | 6 | 7): { a: 0; b: 2 | 3 | 4 | 5 | 6 | 7 } {
+  return { a: 0, b };
+}
+
+function multiResourceDiscardWorld(
+  neededA: string,
+  neededB: string,
+  junkA: string,
+  junkB: string,
+  filler = "star_matter",
+  pickup = "divine_fragment",
+): WorldTopology {
+  const mid = planeAt(2);
+  const pick = planeAt(3);
+  const afterPickup = planeAt(4);
+  const afterA = planeAt(5);
+  const afterB = planeAt(6);
+  return topology({
+    planeNodes: [
+      { plane: START, dominantDimension: 1, family: "aboveground", progressionTier: 0 },
+      { plane: mid, dominantDimension: 2, family: "inside", progressionTier: 1 },
+      { plane: pick, dominantDimension: 3, family: "inside", progressionTier: 1 },
+      { plane: afterPickup, dominantDimension: 4, family: "inside", progressionTier: 2 },
+      { plane: afterA, dominantDimension: 5, family: "inside", progressionTier: 3 },
+      { plane: afterB, dominantDimension: 6, family: "inside", progressionTier: 4 },
+      { plane: OLYMPUS, dominantDimension: 15, family: "olympus", progressionTier: 7 },
+    ],
+    transitions: [
+      transition("transition.flag.a", START, mid, { gateId: "gate.flag.a", progressionClass: "quest_flag_gate" }),
+      transition("transition.flag.b", mid, pick, { gateId: "gate.flag.b", progressionClass: "quest_flag_gate" }),
+      transition("transition.pickup", pick, afterPickup, { gateId: "gate.pickup", progressionClass: "resource_gate" }),
+      transition("transition.needed.a", afterPickup, afterA, { gateId: "gate.needed.a", progressionClass: "resource_gate" }),
+      transition("transition.needed.b", afterA, afterB, { gateId: "gate.needed.b", progressionClass: "resource_gate" }),
+      transition("transition.filler", afterB, OLYMPUS, { gateId: "gate.filler", progressionClass: "resource_gate" }),
+    ],
+    gates: [
+      gate({
+        id: "gate.flag.a",
+        transitionId: "transition.flag.a",
+        progressionClass: "quest_flag_gate",
+        requiredFlag: flagId(junkA),
+      }),
+      gate({
+        id: "gate.flag.b",
+        transitionId: "transition.flag.b",
+        progressionClass: "quest_flag_gate",
+        requiredFlag: flagId(junkB),
+      }),
+      resourceGateRow("gate.pickup", "transition.pickup", pickup, 1),
+      resourceGateRow("gate.needed.a", "transition.needed.a", neededA, 1),
+      resourceGateRow("gate.needed.b", "transition.needed.b", neededB, 1),
+      resourceGateRow("gate.filler", "transition.filler", filler, 72),
+    ],
+    progressionSources: [
+      resourceSource("source.needed.a", neededA, 1),
+      resourceSource("source.needed.b", neededB, 1),
+      source({
+        id: "source.junk.a",
+        plane: START,
+        sourceType: "container",
+        grants: [`resource:${junkA}`, `flag:${flagId(junkA)}`],
+        requirements: [],
+        consumption: false,
+        contentReference: junkA,
+        quantity: 1,
+      }),
+      source({
+        id: "source.junk.b",
+        plane: START,
+        sourceType: "container",
+        grants: [`resource:${junkB}`, `flag:${flagId(junkB)}`],
+        requirements: [],
+        consumption: false,
+        contentReference: junkB,
+        quantity: 1,
+      }),
+      resourceSource("source.filler", filler, 72),
+      resourceSource("source.pickup", pickup, 10, pick),
+    ],
+  });
+}
+
 describe("winnability solver inventory feasibility", () => {
   it("passes when optional free loot exceeds 12 slots but the winning route needs a subset", () => {
     const extras = RESOURCE_IDS.filter((id) => id !== "ore");
@@ -614,7 +705,7 @@ describe("winnability solver inventory feasibility", () => {
     agreesWithUnpruned(world);
   });
 
-  it("agrees with the unpruned reference solver on small inventory-pressure graphs", () => {
+  it("agrees with the unpruned production search on small inventory-pressure graphs", () => {
     const extras = [0, 10, 108];
     const needs = [1, 9, 10, 108, 109];
     for (const need of needs) {
@@ -641,6 +732,62 @@ describe("winnability solver inventory feasibility", () => {
           ],
         });
         agreesWithUnpruned(world);
+        agreesWithExhaustiveReference(world);
+      }
+    }
+  });
+
+  it("passes when a non-greedy multi-resource discard is the winning combination", () => {
+    const world = multiResourceDiscardWorld("crystal", "ectoplasm", "herb", "ore");
+    expect(proveWinnable(world).ok).toBe(true);
+    agreesWithExhaustiveReference(world);
+  });
+
+  it("still passes when needed and dispensable resource IDs are permuted", () => {
+    const permutations: [string, string, string, string][] = [
+      ["crystal", "ectoplasm", "herb", "ore"],
+      ["herb", "ore", "crystal", "ectoplasm"],
+      ["ore", "void_fragment", "crystal", "herb"],
+    ];
+    const results = permutations.map(([neededA, neededB, junkA, junkB]) => {
+      const world = multiResourceDiscardWorld(neededA, neededB, junkA, junkB);
+      const ok = proveWinnable(world).ok;
+      agreesWithExhaustiveReference(world);
+      return ok;
+    });
+    expect(results.every((ok) => ok === results[0])).toBe(true);
+    expect(results[0]).toBe(true);
+  });
+
+  it("agrees with an independent exhaustive retain-quantity reference on tiny inventory graphs", () => {
+    const held = [1, 9, 10];
+    const pickups = [1, 10];
+    const costs = [1, 9, 10, 11];
+    for (const have of held) {
+      for (const pickup of pickups) {
+        for (const cost of costs) {
+          const world = topology({
+            planeNodes: [
+              { plane: START, dominantDimension: 1, family: "aboveground", progressionTier: 0 },
+              { plane: SIDE, dominantDimension: 2, family: "inside", progressionTier: 1 },
+              { plane: OLYMPUS, dominantDimension: 15, family: "olympus", progressionTier: 7 },
+            ],
+            transitions: [
+              transition("transition.side", START, SIDE, { gateId: "gate.side", progressionClass: "resource_gate" }),
+              transition("transition.olympus", SIDE, OLYMPUS, { gateId: "gate.olympus", progressionClass: "resource_gate" }),
+            ],
+            gates: [
+              resourceGateRow("gate.side", "transition.side", "herb", 1),
+              resourceGateRow("gate.olympus", "transition.olympus", "ore", cost),
+            ],
+            progressionSources: [
+              resourceSource("source.herb", "herb", have),
+              resourceSource("source.crystal", "crystal", have),
+              resourceSource("source.ore", "ore", pickup, SIDE),
+            ],
+          });
+          agreesWithExhaustiveReference(world);
+        }
       }
     }
   });
