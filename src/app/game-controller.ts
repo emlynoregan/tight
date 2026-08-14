@@ -92,7 +92,7 @@ export class GameController {
 
   command(command: PlayerCommand): CommandResult {
     const result = applyPlayerCommand(this.runtime, command);
-    if (result.ok && command.type !== "setHeldDirection" && command.type !== "queue") {
+    if (result.ok && command.type !== "setHeldDirection" && command.type !== "queue" && command.type !== "queueFromModal") {
       void this.persist();
     }
     return result;

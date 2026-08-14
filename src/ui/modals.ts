@@ -28,11 +28,11 @@ export function bindModalCommands(shell: ShellElements, dispatch: (command: Play
       return;
     }
     if (cmd === "drop" && itemId) {
-      dispatch({ type: "modalDrop", itemId });
+      dispatch({ type: "queueFromModal", action: { type: "drop", itemId } });
       return;
     }
     if (cmd === "use" && itemId) {
-      dispatch({ type: "modalUse", itemId });
+      dispatch({ type: "queueFromModal", action: { type: "item", itemId } });
       return;
     }
     if (cmd === "spend" && attribute) {

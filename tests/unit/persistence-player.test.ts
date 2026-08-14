@@ -58,7 +58,7 @@ describe("inventory and equipment", () => {
     expect(runtime.save.player.inventory.every((row) => row.itemId === "ore")).toBe(true);
   });
 
-  it("equips, unequips, drops and picks up through paused modals and actions", () => {
+  it("equips and unequips immediately while the inventory modal stays paused", () => {
     const runtime = newGame();
     applyPlayerCommand(runtime, { type: "openModal", modal: "inventory" });
     const pausedTick = runtime.save.tick;
@@ -67,15 +67,95 @@ describe("inventory and equipment", () => {
     expect(applyPlayerCommand(runtime, { type: "unequip", slot: "weapon" }).ok).toBe(true);
     expect(runtime.save.player.equipment.weapon).toBeNull();
     expect(runtime.save.player.inventory.some((row) => row.itemId === "sword")).toBe(true);
+    expect(runtime.save.modal).toBe("inventory");
+    expect(runtime.save.tick).toBe(pausedTick);
     expect(applyPlayerCommand(runtime, { type: "equip", itemId: "sword" }).ok).toBe(true);
     expect(runtime.save.player.equipment.weapon).toBe("sword");
-    expect(applyPlayerCommand(runtime, { type: "modalDrop", itemId: "healing_herb" }).ok).toBe(true);
-    expect(runtime.save.groundItems).toHaveLength(1);
-    applyPlayerCommand(runtime, { type: "closeModal" });
-    applyPlayerCommand(runtime, { type: "queue", action: { type: "pickup" } });
-    advanceTick(runtime);
+    expect(advanceTick(runtime).advanced).toBe(false);
+    expect(runtime.save.tick).toBe(pausedTick);
+  });
+});
+
+describe("inventory use and drop action economy", () => {
+  it("queues Use from inventory without mutating until the next tick", () => {
+    const runtime = newGame();
+    const player = playerActor(runtime);
+    player.hp = 10;
+    const herbsBefore = runtime.save.player.inventory.find((row) => row.itemId === "healing_herb")?.quantity;
+    applyPlayerCommand(runtime, { type: "openModal", modal: "inventory" });
+    const pausedTick = runtime.save.tick;
+    expect(applyPlayerCommand(runtime, { type: "queueFromModal", action: { type: "item", itemId: "healing_herb" } }).ok).toBe(true);
+    expect(runtime.save.modal).toBeNull();
+    expect(runtime.save.tick).toBe(pausedTick);
+    expect(player.hp).toBe(10);
+    expect(runtime.save.player.inventory.find((row) => row.itemId === "healing_herb")?.quantity).toBe(herbsBefore);
+    expect(runtime.save.actionQueue).toEqual([{ type: "item", itemId: "healing_herb" }]);
+    const result = advanceTick(runtime);
+    expect(result.advanced).toBe(true);
+    expect(runtime.save.tick).toBe(pausedTick + 1);
+    expect(result.events.some((event) => event.type === "item_used" && event.detail === "healing_herb")).toBe(true);
+    expect(player.hp).toBeGreaterThan(10);
+    expect(runtime.save.player.inventory.find((row) => row.itemId === "healing_herb")?.quantity).toBe((herbsBefore ?? 0) - 1);
+  });
+
+  it("queues Drop from inventory and only places a ground item on the tick", () => {
+    const runtime = newGame();
+    applyPlayerCommand(runtime, { type: "openModal", modal: "inventory" });
+    const pausedTick = runtime.save.tick;
+    const herbsBefore = runtime.save.player.inventory.find((row) => row.itemId === "healing_herb")?.quantity;
+    expect(applyPlayerCommand(runtime, { type: "queueFromModal", action: { type: "drop", itemId: "healing_herb" } }).ok).toBe(true);
+    expect(runtime.save.modal).toBeNull();
+    expect(runtime.save.tick).toBe(pausedTick);
     expect(runtime.save.groundItems).toHaveLength(0);
+    expect(runtime.save.player.inventory.find((row) => row.itemId === "healing_herb")?.quantity).toBe(herbsBefore);
+    const result = advanceTick(runtime);
+    expect(result.advanced).toBe(true);
+    expect(runtime.save.tick).toBe(pausedTick + 1);
+    expect(runtime.save.groundItems).toHaveLength(1);
+    expect(runtime.save.groundItems[0]?.itemId).toBe("healing_herb");
+    expect(runtime.save.player.inventory.find((row) => row.itemId === "healing_herb")?.quantity).toBe((herbsBefore ?? 0) - 1);
+  });
+
+  it("still spends a failed queued use or drop", () => {
+    const runtime = newGame();
+    applyPlayerCommand(runtime, { type: "openModal", modal: "inventory" });
+    expect(applyPlayerCommand(runtime, { type: "queueFromModal", action: { type: "item", itemId: "ore" } }).ok).toBe(true);
+    const afterUse = advanceTick(runtime);
+    expect(afterUse.advanced).toBe(true);
+    expect(afterUse.events.some((event) => event.type === "action_failed")).toBe(true);
     expect(runtime.save.player.inventory.some((row) => row.itemId === "healing_herb")).toBe(true);
+    applyPlayerCommand(runtime, { type: "openModal", modal: "inventory" });
+    expect(applyPlayerCommand(runtime, { type: "queueFromModal", action: { type: "drop", itemId: "club" } }).ok).toBe(true);
+    const afterDrop = advanceTick(runtime);
+    expect(afterDrop.advanced).toBe(true);
+    expect(afterDrop.events.some((event) => event.type === "action_failed")).toBe(true);
+    expect(runtime.save.groundItems).toHaveLength(0);
+  });
+
+  it("rejects a modal use or drop when the action queue is full without closing", () => {
+    const runtime = newGame();
+    applyPlayerCommand(runtime, { type: "queue", action: { type: "wait" } });
+    applyPlayerCommand(runtime, { type: "queue", action: { type: "wait" } });
+    applyPlayerCommand(runtime, { type: "openModal", modal: "inventory" });
+    expect(applyPlayerCommand(runtime, { type: "queueFromModal", action: { type: "drop", itemId: "healing_herb" } }).ok).toBe(false);
+    expect(runtime.save.modal).toBe("inventory");
+    expect(runtime.save.groundItems).toHaveLength(0);
+    expect(runtime.save.actionQueue).toHaveLength(2);
+  });
+
+  it("reloads semantic state after a completed drop tick", () => {
+    const runtime = newGame();
+    applyPlayerCommand(runtime, { type: "openModal", modal: "inventory" });
+    applyPlayerCommand(runtime, { type: "queueFromModal", action: { type: "drop", itemId: "healing_herb" } });
+    advanceTick(runtime);
+    const before = hashSaveState(runtime.save);
+    const loaded = createRuntimeFromSaveRecord(makeSaveRecord(runtime.save), { cache: createAcceptedWorldCache() });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) {
+      return;
+    }
+    expect(hashSaveState(loaded.runtime.save)).toBe(before);
+    expect(loaded.runtime.save.groundItems).toHaveLength(1);
   });
 });
 

@@ -3,20 +3,17 @@ import type { AttributeId, EquipmentSlotId } from "../model/ids";
 import type { Direction, IntentionalAction, SaveState } from "../model/save-state";
 import { DIRECTIONS } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
-import { playerActor } from "../runtime/game-runtime";
 import { spendAdvancementPoint } from "./advancement";
-import { resolveItemAction } from "./combat";
-import { dropInventoryItem, equipItem, unequipSlot } from "./inventory";
+import { equipItem, unequipSlot } from "./inventory";
 
 export type PlayerCommand =
   | { readonly type: "queue"; readonly action: IntentionalAction }
+  | { readonly type: "queueFromModal"; readonly action: IntentionalAction }
   | { readonly type: "setHeldDirection"; readonly direction: Direction | null }
   | { readonly type: "openModal"; readonly modal: string }
   | { readonly type: "closeModal" }
   | { readonly type: "equip"; readonly itemId: string }
   | { readonly type: "unequip"; readonly slot: EquipmentSlotId }
-  | { readonly type: "modalDrop"; readonly itemId: string }
-  | { readonly type: "modalUse"; readonly itemId: string }
   | { readonly type: "spendAp"; readonly attribute: AttributeId };
 
 export type CommandResult =
@@ -67,24 +64,22 @@ function applyPausedMutation(runtime: GameRuntime, command: PlayerCommand): Comm
     const result = unequipSlot(runtime.save, command.slot);
     return result.ok ? { ok: true } : { ok: false, code: "rejected", message: result.message };
   }
-  if (command.type === "modalDrop") {
-    const events = dropInventoryItem(runtime, command.itemId);
-    const failed = events.find((event) => event.type === "action_failed");
-    return failed ? { ok: false, code: "rejected", message: failed.detail ?? "drop failed" } : { ok: true };
-  }
-  if (command.type === "modalUse") {
-    const events = resolveItemAction(runtime.save, runtime.currentPlaneBase, playerActor(runtime), {
-      type: "item",
-      itemId: command.itemId,
-    });
-    const failed = events.find((event) => event.type === "action_failed");
-    return failed ? { ok: false, code: "rejected", message: failed.detail ?? "use failed" } : { ok: true };
-  }
   if (command.type === "spendAp") {
     const result = spendAdvancementPoint(runtime, command.attribute);
     return result.ok ? { ok: true } : { ok: false, code: "rejected", message: result.message };
   }
   return { ok: false, code: "rejected", message: "unknown paused command" };
+}
+
+function enqueueAction(save: SaveState, action: IntentionalAction): CommandResult {
+  if (!isWellFormedAction(action)) {
+    return { ok: false, code: "rejected", message: "command is not a legal action" };
+  }
+  if (save.actionQueue.length >= GLOBAL_CONSTANTS.inputQueueCapacity) {
+    return { ok: false, code: "rejected", message: "action queue is full" };
+  }
+  save.actionQueue.push(action);
+  return { ok: true };
 }
 
 export function applyPlayerCommand(runtime: GameRuntime, command: PlayerCommand): CommandResult {
@@ -105,29 +100,30 @@ export function applyPlayerCommand(runtime: GameRuntime, command: PlayerCommand)
     save.heldDirection = command.direction;
     return { ok: true };
   }
-  if (
-    command.type === "equip" ||
-    command.type === "unequip" ||
-    command.type === "modalDrop" ||
-    command.type === "modalUse" ||
-    command.type === "spendAp"
-  ) {
+  if (command.type === "equip" || command.type === "unequip" || command.type === "spendAp") {
     if (!save.modal) {
       return { ok: false, code: "rejected", message: "management commands require a paused modal" };
     }
     return applyPausedMutation(runtime, command);
   }
+  if (command.type === "queueFromModal") {
+    if (!save.modal) {
+      return { ok: false, code: "rejected", message: "management commands require a paused modal" };
+    }
+    const queued = enqueueAction(save, command.action);
+    if (!queued.ok) {
+      return queued;
+    }
+    save.modal = null;
+    return { ok: true };
+  }
   if (save.modal) {
     return { ok: false, code: "rejected", message: "simulation paused" };
   }
-  if (command.type !== "queue" || !isWellFormedAction(command.action)) {
+  if (command.type !== "queue") {
     return { ok: false, code: "rejected", message: "command is not a legal action" };
   }
-  if (save.actionQueue.length >= GLOBAL_CONSTANTS.inputQueueCapacity) {
-    return { ok: false, code: "rejected", message: "action queue is full" };
-  }
-  save.actionQueue.push(command.action);
-  return { ok: true };
+  return enqueueAction(save, command.action);
 }
 
 export function capturePlayerAction(save: SaveState): IntentionalAction {
