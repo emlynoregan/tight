@@ -130,7 +130,7 @@ export function getHudView(runtime: GameRuntime, messages: readonly string[] = [
     "Space/. wait",
     canInteract ? "E interact" : "E interact (nothing adjacent)",
     canAttack ? `F attack (${attackId})` : "F attack (need adjacent foe)",
-    "G pick up  I inventory  C character",
+    "G pick up  I inventory  C character  L map key",
     save.modal ? "Esc close modal" : null,
   ].filter((row): row is string => row !== null);
   return {

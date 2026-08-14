@@ -1,10 +1,10 @@
-import { MAP_SIZE } from "../model/plane";
-import type { ActorKind } from "../model/save-state";
 import type { FamilyId } from "../model/ids";
-import type { PlanePair } from "../model/plane";
+import { MAP_SIZE, planesEqual, type MapCoordinate, type PlanePair } from "../model/plane";
+import type { ActorKind } from "../model/save-state";
 import { actorsOnPlane, doorRuntimeState, featureAt } from "../rules/occupancy";
 import { groundItemsOnPlane } from "../rules/inventory";
 import { orthogonalAdjacent } from "../rules/targeting";
+import { fixtureAt, transitionById } from "../rules/transitions";
 import { playerActor, type GameRuntime } from "../runtime/game-runtime";
 import type { TickEvent } from "../rules/tick-events";
 import { cellIsVisible, visibilityProfileFor } from "./visibility";
@@ -69,6 +69,34 @@ function eventCell(runtime: GameRuntime, event: TickEvent): { x: number; y: numb
   return actor ? { x: actor.x, y: actor.y } : null;
 }
 
+export function transitionFixtureState(runtime: GameRuntime, cell: MapCoordinate): string | null {
+  const fixture = fixtureAt(runtime.currentPlaneBase, cell);
+  if (!fixture) {
+    return null;
+  }
+  const transition = transitionById(runtime, fixture.transitionId);
+  if (!transition) {
+    return null;
+  }
+  if (transition.initiallyBroken || transition.progressionClass === "optional_broken") {
+    return "broken";
+  }
+  if (planesEqual(transition.sourcePlane, runtime.currentPlaneBase.plane)) {
+    return "exit";
+  }
+  return "arrival";
+}
+
+function featureRuntimeState(runtime: GameRuntime, cell: MapCoordinate, featureId: string | null): string | null {
+  if (featureId === "door") {
+    return doorRuntimeState(runtime.save, runtime.currentPlaneBase, cell);
+  }
+  if (featureId === "transition_fixture") {
+    return transitionFixtureState(runtime, cell);
+  }
+  return null;
+}
+
 function effectFromEvent(runtime: GameRuntime, event: TickEvent, index: number): EffectView | null {
   const cell = eventCell(runtime, event);
   if (!cell) {
@@ -99,13 +127,12 @@ export function getVisiblePlaneView(runtime: GameRuntime, events: readonly TickE
     for (let x = 0; x < MAP_SIZE; x += 1) {
       const cell = { x, y };
       const featureId = featureAt(plane, cell);
-      const door = featureId === "door" ? doorRuntimeState(save, plane, cell) : null;
       cells.push({
         x,
         y,
         terrainId: plane.terrain[y]?.[x] ?? "void_floor",
         featureId,
-        featureState: door,
+        featureState: featureRuntimeState(runtime, cell, featureId),
         visible: cellIsVisible(runtime, cell),
       });
     }

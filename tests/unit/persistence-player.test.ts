@@ -259,6 +259,7 @@ describe("input mapping", () => {
   it("opens inventory and character modals from the keyboard map", () => {
     expect(mapKeydown("KeyI", false)).toEqual({ type: "inventory" });
     expect(mapKeydown("KeyC", false)).toEqual({ type: "character" });
+    expect(mapKeydown("KeyL", false)).toEqual({ type: "legend" });
     expect(mapKeydown("KeyG", false)).toEqual({ type: "pickup" });
   });
 });

@@ -144,8 +144,7 @@ function drawFeature(id: string, state: string | undefined, request: VisualReque
       }
     }
   } else if (id === "transition_fixture") {
-    body = circle(16, 16, 10, "none", ` stroke="${c.accent}" stroke-width="2"`) + polygon("16,8 20,16 16,24 12,16", c.fill);
-    collision = "transition_usable";
+    return drawTransitionFixture(resolvedState, request);
   } else if (id === "table" || id === "counter" || id === "shelf" || id === "bed" || id === "pew" || id === "chair") {
     body = rect(6, 10, 20, 12, c.fill, ` stroke="${c.ink}" stroke-width="1.4"`);
   } else {
@@ -250,6 +249,53 @@ function drawAbility(id: string): DrawnVisual {
   const ability = CONTENT_REGISTRY.byId.ability.get(id);
   const body = rect(3, 3, 26, 26, "#202830", ` rx="4"`) + polygon("16,6 24,16 16,26 8,16", "#80d0ff") + marks(`ability.${id}`, "#f0f8ff");
   return { markup: svg(body), animation: NONE, collisionClass: null, actorClass: null, label: ability?.name ?? id.replaceAll("_", " ") };
+}
+
+function drawTransitionFixture(state: string | undefined, request: VisualRequest): DrawnVisual {
+  const c = colours(request, "#5a5048", "#2a2420", "#e0d0a0");
+  if (state === "broken") {
+    const body =
+      circle(16, 16, 10, "none", ` stroke="${c.ink}" stroke-width="2"`) +
+      line(8, 8, 24, 24, c.accent, 2) +
+      line(24, 8, 8, 24, c.accent, 2);
+    return {
+      markup: svg(body),
+      animation: NONE,
+      collisionClass: "transition_broken",
+      actorClass: null,
+      label: "broken passage",
+    };
+  }
+  if (state === "arrival") {
+    const body =
+      circle(16, 16, 11, "none", ` stroke="${c.ink}" stroke-width="1.8"`) +
+      circle(16, 16, 6, "none", ` stroke="${c.accent}" stroke-width="1.6"`) +
+      line(16, 5, 16, 10, c.accent, 1.6) +
+      line(27, 16, 22, 16, c.accent, 1.6) +
+      line(16, 27, 16, 22, c.accent, 1.6) +
+      line(5, 16, 10, 16, c.accent, 1.6);
+    return {
+      markup: svg(body),
+      animation: NONE,
+      collisionClass: "transition_usable",
+      actorClass: null,
+      label: "arrival",
+    };
+  }
+  const body =
+    circle(16, 16, 9, "none", ` stroke="${c.accent}" stroke-width="2"`) +
+    polygon("16,10 20,16 16,22 12,16", c.fill, ` stroke="${c.ink}" stroke-width="1.2"`) +
+    polygon("16,1 12,7 20,7", c.accent) +
+    polygon("31,16 25,12 25,20", c.accent) +
+    polygon("16,31 12,25 20,25", c.accent) +
+    polygon("1,16 7,12 7,20", c.accent);
+  return {
+    markup: svg(body),
+    animation: PULSE,
+    collisionClass: "transition_usable",
+    actorClass: null,
+    label: state === "exit" ? "exit" : "transition fixture",
+  };
 }
 
 function drawTransition(id: string, request: VisualRequest): DrawnVisual {

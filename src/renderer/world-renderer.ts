@@ -100,6 +100,7 @@ export class WorldRenderer {
         semanticId: cell.featureState ? featureKey(cell.featureId ?? "", cell.featureState) : featureKey(cell.featureId ?? ""),
         plane: view.plane,
         family: view.family,
+        ...(cell.featureState ? { state: cell.featureState } : {}),
       },
       present: cell.featureId !== null,
     }));

@@ -16,6 +16,7 @@ import { GameController } from "../../src/app/game-controller";
 import { SimulationClock } from "../../src/app/clock";
 import { mapKeydown } from "../../src/input/input-map";
 import { PresentationFacade, ProceduralVisualProvider, SilentAudioProvider } from "../../src/presentation";
+import { legendEntries } from "../../src/ui/legend";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -58,6 +59,7 @@ describe("input mapping", () => {
     expect(mapKeydown("Space", true)).toBeNull();
     expect(mapKeydown("KeyE", false)).toEqual({ type: "interact" });
     expect(mapKeydown("KeyF", false)).toEqual({ type: "attack" });
+    expect(mapKeydown("KeyL", false)).toEqual({ type: "legend" });
     expect(mapKeydown("Escape", false)).toEqual({ type: "closeModal" });
   });
 });
@@ -78,7 +80,22 @@ describe("read models", () => {
     expect(hud.gems.filter((gem) => gem.state === "current").map((gem) => gem.dimension)).toEqual([0, 1]);
     expect(hud.hp).toBeGreaterThan(0);
     expect(hud.actionHints.length).toBeGreaterThan(0);
+    expect(hud.actionHints.some((hint) => hint.includes("L map key"))).toBe(true);
+    const features = plane.cells.filter((cell) => cell.featureId === "transition_fixture");
+    expect(features.some((cell) => cell.featureState === "exit")).toBe(true);
+    expect(features.some((cell) => cell.featureState === "arrival")).toBe(true);
     expect(getAvailableActions(runtime).defaultAttack).toBeNull();
+    expect(hashSaveState(runtime.save)).toBe(before);
+  });
+
+  it("names visible exit and arrival fixtures in the map key", () => {
+    const runtime = createNewGame("tight-v1", "0", { cache: createAcceptedWorldCache() });
+    const before = hashSaveState(runtime.save);
+    const facade = new PresentationFacade(new ProceduralVisualProvider(), new SilentAudioProvider());
+    const entries = legendEntries(getVisiblePlaneView(runtime), facade);
+    expect(entries[0]?.semanticId).toBe("actor.player");
+    expect(entries.some((entry) => entry.semanticId === "feature.transition_fixture.exit")).toBe(true);
+    expect(entries.some((entry) => entry.semanticId === "feature.transition_fixture.arrival")).toBe(true);
     expect(hashSaveState(runtime.save)).toBe(before);
   });
 });
@@ -103,6 +120,19 @@ describe("game controller", () => {
     expect(controller.snapshot().hud.messages.some((line) => line.includes("Waited"))).toBe(true);
     applyPlayerCommand(controller.runtime, { type: "setHeldDirection", direction: "north" });
     expect(controller.runtime.save.heldDirection).toBe("north");
+  });
+
+  it("opens a pausing map-key modal", () => {
+    const controller = new GameController({
+      seed: "0",
+      presentation: new PresentationFacade(new ProceduralVisualProvider(), new SilentAudioProvider()),
+    });
+    const opened = controller.handleIntent({ type: "legend" });
+    expect(opened?.ok).toBe(true);
+    expect(controller.runtime.save.modal).toBe("legend");
+    const tick = controller.runtime.save.tick;
+    expect(controller.tick().advanced).toBe(false);
+    expect(controller.runtime.save.tick).toBe(tick);
   });
 });
 

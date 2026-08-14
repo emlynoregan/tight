@@ -63,14 +63,21 @@ window.addEventListener("pagehide", () => {
 });
 
 function frame(now: number): void {
-  if (clock.step(now).shouldSimulate) {
-    controller.tick();
+  try {
+    if (clock.step(now).shouldSimulate) {
+      controller.tick();
+    }
+    const snapshot = controller.snapshot();
+    world.sync(snapshot.plane, now);
+    world.app.render();
+    renderHud(shell, snapshot.hud, controller.presentation);
+    renderManagementModal(shell, snapshot.hud.modal, snapshot.inventory, snapshot.character, {
+      plane: snapshot.plane,
+      presentation: controller.presentation,
+    });
+  } catch (error) {
+    console.error(error);
   }
-  const snapshot = controller.snapshot();
-  world.sync(snapshot.plane, now);
-  world.app.render();
-  renderHud(shell, snapshot.hud, controller.presentation);
-  renderManagementModal(shell, snapshot.hud.modal, snapshot.inventory, snapshot.character);
   requestAnimationFrame(frame);
 }
 

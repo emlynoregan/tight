@@ -1,5 +1,7 @@
-import type { CharacterView, InventoryView, PlayerCommand } from "../core";
+import type { CharacterView, InventoryView, PlaneView, PlayerCommand } from "../core";
 import type { EquipmentSlotId } from "../core/model/ids";
+import type { PresentationFacade } from "../presentation";
+import { legendMarkup } from "./legend";
 import type { ShellElements } from "./shell";
 
 const SLOTS: readonly EquipmentSlotId[] = ["weapon", "offhand", "body", "head", "charm", "artefact"];
@@ -46,6 +48,7 @@ export function renderManagementModal(
   modal: string | null,
   inventory: InventoryView,
   character: CharacterView,
+  extras?: { readonly plane: PlaneView; readonly presentation: PresentationFacade },
 ): void {
   if (modal === "inventory") {
     shell.modal.hidden = false;
@@ -55,6 +58,11 @@ export function renderManagementModal(
   if (modal === "character") {
     shell.modal.hidden = false;
     shell.modal.innerHTML = characterMarkup(character);
+    return;
+  }
+  if (modal === "legend" && extras) {
+    shell.modal.hidden = false;
+    shell.modal.innerHTML = legendMarkup(extras.plane, extras.presentation);
     return;
   }
   if (modal) {

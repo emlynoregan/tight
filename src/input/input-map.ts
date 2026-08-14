@@ -9,6 +9,7 @@ export type InputIntent =
   | { readonly type: "pickup" }
   | { readonly type: "inventory" }
   | { readonly type: "character" }
+  | { readonly type: "legend" }
   | { readonly type: "closeModal" };
 
 const DIRECTION_BY_CODE: Record<string, Direction> = {
@@ -55,6 +56,9 @@ export function mapKeydown(code: string, repeat: boolean): InputIntent | null {
   if (code === "KeyC") {
     return { type: "character" };
   }
+  if (code === "KeyL") {
+    return { type: "legend" };
+  }
   if (code === "Escape") {
     return { type: "closeModal" };
   }
@@ -85,5 +89,6 @@ export const GAME_KEY_CODES = new Set([
   "KeyG",
   "KeyI",
   "KeyC",
+  "KeyL",
   "Escape",
 ]);

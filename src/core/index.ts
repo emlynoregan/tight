@@ -78,7 +78,7 @@ export { applyPlayerCommand } from "./rules/commands";
 export type { PlayerCommand, CommandResult } from "./rules/commands";
 export { advanceTick } from "./rules/tick";
 export type { TickResult } from "./rules/tick";
-export { getVisiblePlaneView } from "./queries/plane-view";
+export { getVisiblePlaneView, transitionFixtureState } from "./queries/plane-view";
 export type { PlaneView, PlaneCellView, ActorView, GroundItemView, EffectView } from "./queries/plane-view";
 export { getHudView, formatTickEvent } from "./queries/hud-view";
 export type { HudView, GemView, StatusView, GemState } from "./queries/hud-view";

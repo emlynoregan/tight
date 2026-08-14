@@ -12,8 +12,22 @@ export class SpriteRegistry {
       return existing;
     }
     const url = visual.source.type === "svg" ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(visual.source.markup)}` : visual.source.uri;
-    const texture = Texture.from(url);
-    texture.source.scaleMode = "nearest";
+    const image = new Image();
+    image.src = url;
+    const texture = Texture.from({
+      resource: image,
+      width: visual.width,
+      height: visual.height,
+      scaleMode: "nearest",
+    });
+    const refresh = () => {
+      texture.source.update();
+    };
+    if (image.complete && image.naturalWidth > 0) {
+      refresh();
+    } else {
+      image.addEventListener("load", refresh, { once: true });
+    }
     this.textures.set(key, texture);
     return texture;
   }

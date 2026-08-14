@@ -94,6 +94,20 @@ describe("procedural visual provider", () => {
     expect(open.source).not.toEqual(locked.source);
     expect(open.collisionClass).toBe("walkable_plain");
   });
+
+  it("distinguishes transition exit and arrival without relying on colour alone", () => {
+    const exit = provider.resolve({ semanticId: "feature.transition_fixture.exit" });
+    const arrival = provider.resolve({ semanticId: "feature.transition_fixture.arrival" });
+    const broken = provider.resolve({ semanticId: "feature.transition_fixture.broken" });
+    expect(exit.source).not.toEqual(arrival.source);
+    expect(exit.source).not.toEqual(broken.source);
+    expect(arrival.source).not.toEqual(broken.source);
+    expect(exit.animation.kind).toBe("pulse");
+    expect(arrival.animation.kind).toBe("none");
+    expect(broken.collisionClass).toBe("transition_broken");
+    expect(exit.label).toBe("exit");
+    expect(arrival.label).toBe("arrival");
+  });
 });
 
 describe("replaceable providers", () => {

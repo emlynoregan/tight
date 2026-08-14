@@ -59,6 +59,7 @@ export function uiKey(label: string): string {
 }
 
 const DOOR_STATES = ["closed", "open", "locked"] as const;
+const TRANSITION_FIXTURE_STATES = ["exit", "arrival", "broken"] as const;
 const GEM_STATES = ["unknown", "known", "current"] as const;
 
 export function requiredVisualKeys(registry: ContentRegistry): readonly string[] {
@@ -71,6 +72,11 @@ export function requiredVisualKeys(registry: ContentRegistry): readonly string[]
     if (feature.id === "door") {
       for (const state of DOOR_STATES) {
         keys.push(featureKey("door", state));
+      }
+    }
+    if (feature.id === "transition_fixture") {
+      for (const state of TRANSITION_FIXTURE_STATES) {
+        keys.push(featureKey("transition_fixture", state));
       }
     }
   }

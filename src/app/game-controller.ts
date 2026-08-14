@@ -114,6 +114,9 @@ export class GameController {
     if (intent.type === "character") {
       return this.command({ type: "openModal", modal: "character" });
     }
+    if (intent.type === "legend") {
+      return this.command({ type: "openModal", modal: "legend" });
+    }
     if (this.runtime.save.modal) {
       return { ok: false, code: "rejected", message: "simulation paused" };
     }
