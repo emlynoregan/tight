@@ -391,6 +391,7 @@ export function finalizePlaneGeometry(input: {
     grid: input.grid,
     wraps: input.wraps,
     family: input.family,
+    plane: input.plane,
     namedPoints: input.namedPoints,
     requiredPoints,
     transitionFixtures: input.transitionFixtures,

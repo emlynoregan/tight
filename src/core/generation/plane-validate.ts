@@ -1,5 +1,5 @@
 import { CONTENT_REGISTRY } from "../data/registry";
-import { MAP_SIZE, type MapCoordinate } from "../model/plane";
+import { MAP_SIZE, OLYMPUS_PLANE, planesEqual, type MapCoordinate, type PlanePair } from "../model/plane";
 import { allCells, cellKey, orthogonalNeighbours } from "./grid";
 import { isOccupiable, requiredConnected, walkableCells } from "./plane-occupancy";
 import { INTERACTION_POINT_KINDS, type NamedPoint, type PlaneGrid, type PlaneValidationIssue } from "./plane-types";
@@ -8,6 +8,7 @@ export interface PlaneValidationInput {
   readonly grid: PlaneGrid;
   readonly wraps: boolean;
   readonly family: string;
+  readonly plane: PlanePair;
   readonly namedPoints: readonly NamedPoint[];
   readonly requiredPoints: readonly MapCoordinate[];
   readonly transitionFixtures: readonly { x: number; y: number }[];
@@ -66,7 +67,7 @@ export function validatePlaneGeometry(input: PlaneValidationInput): PlaneValidat
       issues.push({ validator: "space_has_manoeuvre_region", detail: `component ${largest}` });
     }
   }
-  if (input.family === "olympus") {
+  if (planesEqual(input.plane, OLYMPUS_PLANE)) {
     const arena = input.namedPoints.filter((point) => point.kind === "playerEntry" || point.kind === "bossSpawn");
     if (arena.length < 2) {
       issues.push({ validator: "boss_arena_has_space", detail: "missing arena points" });

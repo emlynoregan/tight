@@ -49,9 +49,18 @@ export {
 export { canonicalizeTopology } from "./generation/canonical";
 export { resolveProgressionOutcomes, resolveRewardProfileDrop } from "./generation/resolve-progression";
 export { proveWinnable } from "./generation/winnability-solver";
+export { getAcceptedWorld, preflightWitnessPlanes, summarizeAcceptedWorld, createAcceptedWorldCache, witnessPlanes } from "./generation/accepted-world";
+export { sweepAcceptedWorlds, deterministicSweepSeeds } from "./generation/seed-sweep";
 export { potentialNeighbours, sharesExactlyOneDimension } from "./generation/topology-neighbours";
 export { planeEligibleForArchetype } from "./data/eligibility";
 export type { WorldTopology, TopologyGenerationResult } from "./generation/topology-types";
+export type {
+  AcceptedWorldResult,
+  AcceptedWorldSuccess,
+  AcceptedWorldSummary,
+  WitnessPreflightResult,
+} from "./generation/accepted-world";
+export type { SeedSweepReport } from "./generation/seed-sweep";
 export type {
   PlaneBase,
   PlaneGenerationResult,

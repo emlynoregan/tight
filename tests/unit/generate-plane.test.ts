@@ -142,6 +142,21 @@ describe("plane generation", () => {
     expect(plane.namedPoints.some((point) => point.kind === "bossSpawn")).toBe(true);
   });
 
+  it("does not require the boss arena on non-final olympus-family planes", () => {
+    const approach = { a: 0 as const, b: 14 as const };
+    const world = topology({
+      planeNodes: [
+        { plane: STARTING_PLANE, dominantDimension: 1, family: "aboveground", progressionTier: 0 },
+        { plane: approach, dominantDimension: 14, family: "olympus", progressionTier: 7 },
+        { plane: OLYMPUS_PLANE, dominantDimension: 15, family: "olympus", progressionTier: 7 },
+      ],
+      transitions: [transition("transition.olympus-approach", approach, OLYMPUS_PLANE)],
+    });
+    const plane = requirePlane(generatePlaneBase("seed-olympus-approach", world, approach));
+    expect(plane.family).toBe("olympus");
+    expect(plane.namedPoints.some((point) => point.kind === "playerEntry")).toBe(false);
+  });
+
   it("keeps required transitions occupiable and connected", () => {
     const world = topology({
       transitions: [transition("transition.open", STARTING_PLANE, OLYMPUS_PLANE)],
