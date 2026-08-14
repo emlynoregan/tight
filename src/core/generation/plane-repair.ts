@@ -1,7 +1,7 @@
 import { CONTENT_REGISTRY } from "../data/registry";
 import { compareCoordinates, type MapCoordinate } from "../model/plane";
 import { allCells, cellKey, manhattan, orthogonalNeighbours } from "./grid";
-import { isOccupiable, requiredConnected } from "./plane-occupancy";
+import { connectedComponent, isOccupiable, requiredConnected } from "./plane-occupancy";
 import type { NamedPoint, PlaneGrid, PlaneRepairEvent, PlaneValidationIssue } from "./plane-types";
 
 const REPAIR_ORDER = [
@@ -118,7 +118,7 @@ function expandWalkable(grid: PlaneGrid, wraps: boolean, familyWalkableTile: str
   return converted;
 }
 
-function carveShortestConnector(
+export function carveShortestConnector(
   grid: PlaneGrid,
   wraps: boolean,
   familyWalkableTile: string,
@@ -131,8 +131,11 @@ function carveShortestConnector(
   if (requiredConnected(grid, occupiableRequired, wraps)) {
     return null;
   }
-  const start = occupiableRequired[0]!;
-  const path = dijkstraConnector(grid, wraps, start, occupiableRequired.slice(1));
+  const pair = chooseClosestBoundaryPair(grid, wraps, occupiableRequired);
+  if (!pair) {
+    return null;
+  }
+  const path = dijkstraConnector(grid, wraps, pair.source, [pair.dest]);
   if (!path) {
     return null;
   }
@@ -146,7 +149,85 @@ function carveShortestConnector(
       grid.featureOrigin[cell.y]![cell.x] = null;
     }
   }
-  return { rule: "carve_shortest_connector", detail: `length ${path.length}` };
+  return {
+    rule: "carve_shortest_connector",
+    detail: `length ${path.length} pair ${pair.source.x},${pair.source.y}->${pair.dest.x},${pair.dest.y}`,
+    x: pair.source.x,
+    y: pair.source.y,
+  };
+}
+
+export function chooseClosestBoundaryPair(
+  grid: PlaneGrid,
+  wraps: boolean,
+  requiredPoints: readonly MapCoordinate[],
+): { source: MapCoordinate; dest: MapCoordinate; distance: number } | null {
+  const components = requiredWalkableComponents(grid, wraps, requiredPoints);
+  if (components.length < 2) {
+    return null;
+  }
+  let best: { source: MapCoordinate; dest: MapCoordinate; distance: number } | null = null;
+  for (let i = 0; i < components.length; i += 1) {
+    for (let j = 0; j < components.length; j += 1) {
+      if (i === j) {
+        continue;
+      }
+      const sourceBoundary = boundaryCells(components[i]!, wraps);
+      const destBoundary = boundaryCells(components[j]!, wraps);
+      for (const source of sourceBoundary) {
+        for (const dest of destBoundary) {
+          const distance = manhattan(source, dest);
+          if (!best || compareBoundaryPair(distance, source, dest, best) < 0) {
+            best = { source, dest, distance };
+          }
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function compareBoundaryPair(
+  distance: number,
+  source: MapCoordinate,
+  dest: MapCoordinate,
+  best: { source: MapCoordinate; dest: MapCoordinate; distance: number },
+): number {
+  return (
+    distance - best.distance ||
+    source.y - best.source.y ||
+    source.x - best.source.x ||
+    dest.y - best.dest.y ||
+    dest.x - best.dest.x
+  );
+}
+
+function requiredWalkableComponents(
+  grid: PlaneGrid,
+  wraps: boolean,
+  requiredPoints: readonly MapCoordinate[],
+): MapCoordinate[][] {
+  const remaining = requiredPoints.filter((point) => isOccupiable(grid, point));
+  const assigned = new Set<string>();
+  const components: MapCoordinate[][] = [];
+  for (const point of remaining) {
+    const key = cellKey(point);
+    if (assigned.has(key)) {
+      continue;
+    }
+    const keys = connectedComponent(grid, point, wraps);
+    for (const member of keys) {
+      assigned.add(member);
+    }
+    components.push(allCells().filter((cell) => keys.has(cellKey(cell))));
+  }
+  return components;
+}
+
+function boundaryCells(component: readonly MapCoordinate[], wraps: boolean): MapCoordinate[] {
+  const keys = new Set(component.map(cellKey));
+  const boundary = component.filter((cell) => orthogonalNeighbours(cell, wraps).some((neighbour) => !keys.has(cellKey(neighbour))));
+  return boundary.length > 0 ? boundary : [...component];
 }
 
 function dijkstraConnector(

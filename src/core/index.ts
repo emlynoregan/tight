@@ -32,7 +32,8 @@ export {
 export type { SemanticPart, WeightedEntry } from "./generation/semantic-random";
 export { bytesToHex, sha256 } from "./generation/sha256";
 export { generateTopology, validateTopology, hashTopology } from "./generation/topology-generator";
-export { generatePlaneBase, hashPlaneBase, familyWraps } from "./generation/generate-plane";
+export { generatePlaneBase, hashPlaneBase, familyWraps, finalizePlaneGeometry } from "./generation/generate-plane";
+export { carveShortestConnector, chooseClosestBoundaryPair } from "./generation/plane-repair";
 export {
   generateBlob,
   generateCluster,
@@ -51,5 +52,10 @@ export { proveWinnable } from "./generation/winnability-solver";
 export { potentialNeighbours, sharesExactlyOneDimension } from "./generation/topology-neighbours";
 export { planeEligibleForArchetype } from "./data/eligibility";
 export type { WorldTopology, TopologyGenerationResult } from "./generation/topology-types";
-export type { PlaneBase, PrimitiveContext, PrimitiveResult } from "./generation/plane-types";
+export type {
+  PlaneBase,
+  PlaneGenerationResult,
+  PrimitiveContext,
+  PrimitiveResult,
+} from "./generation/plane-types";
 export type { SolverResult, SolverFailure, SolverSearchOptions, WitnessStep } from "./generation/solver-types";

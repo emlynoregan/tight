@@ -54,6 +54,31 @@ export interface PlaneBase {
   readonly planeHash: string;
 }
 
+export interface PlaneGenerationFailure {
+  readonly ok: false;
+  readonly code: "PLANE_GEOMETRY_FAILURE";
+  readonly message: string;
+  readonly issues: readonly PlaneValidationIssue[];
+  readonly plane: PlanePair;
+}
+
+export interface PlaneGenerationSuccess {
+  readonly ok: true;
+  readonly plane: PlaneBase;
+}
+
+export type PlaneGenerationResult = PlaneGenerationSuccess | PlaneGenerationFailure;
+
+export const INTERACTION_POINT_KINDS = new Set([
+  "approach",
+  "customer",
+  "transition",
+  "playerEntry",
+  "bossSpawn",
+  "centre",
+  "source-interact",
+]);
+
 export interface PrimitiveContext {
   readonly generatorVersion: string;
   readonly worldSeed: string;

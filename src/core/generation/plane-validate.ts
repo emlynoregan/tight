@@ -1,8 +1,8 @@
 import { CONTENT_REGISTRY } from "../data/registry";
 import { MAP_SIZE, type MapCoordinate } from "../model/plane";
-import { allCells } from "./grid";
+import { allCells, cellKey, orthogonalNeighbours } from "./grid";
 import { isOccupiable, requiredConnected, walkableCells } from "./plane-occupancy";
-import type { NamedPoint, PlaneGrid, PlaneValidationIssue } from "./plane-types";
+import { INTERACTION_POINT_KINDS, type NamedPoint, type PlaneGrid, type PlaneValidationIssue } from "./plane-types";
 
 export interface PlaneValidationInput {
   readonly grid: PlaneGrid;
@@ -20,6 +20,7 @@ function inBounds(cell: MapCoordinate): boolean {
 export function validatePlaneGeometry(input: PlaneValidationInput): PlaneValidationIssue[] {
   const issues: PlaneValidationIssue[] = [];
   const walkableTarget = CONTENT_REGISTRY.planeFamilies.find((family) => family.id === input.family)?.walkableTargetMin ?? 35;
+  issues.push(...validateRequiredFixtures(input));
   for (const point of input.requiredPoints) {
     if (!inBounds(point)) {
       issues.push({ validator: "required_points_in_bounds", detail: `${point.x},${point.y}` });
@@ -69,6 +70,52 @@ export function validatePlaneGeometry(input: PlaneValidationInput): PlaneValidat
     const arena = input.namedPoints.filter((point) => point.kind === "playerEntry" || point.kind === "bossSpawn");
     if (arena.length < 2) {
       issues.push({ validator: "boss_arena_has_space", detail: "missing arena points" });
+    }
+  }
+  return issues;
+}
+
+export function interactionPoints(namedPoints: readonly NamedPoint[]): NamedPoint[] {
+  return namedPoints.filter((point) => INTERACTION_POINT_KINDS.has(point.kind));
+}
+
+function validateRequiredFixtures(input: PlaneValidationInput): PlaneValidationIssue[] {
+  const issues: PlaneValidationIssue[] = [];
+  const byId = new Map(input.namedPoints.map((point) => [point.id, point]));
+  for (const source of input.namedPoints.filter((point) => point.kind === "source")) {
+    const approach = byId.get(`${source.id}.approach`);
+    if (!approach) {
+      issues.push({ validator: "required_points_occupiable", detail: `${source.id} missing approach` });
+      continue;
+    }
+    if (approach.x === source.x && approach.y === source.y) {
+      issues.push({ validator: "required_points_occupiable", detail: `${source.id} approach is not distinct` });
+    }
+    const adjacent = new Set(orthogonalNeighbours(source, input.wraps).map(cellKey));
+    if (!adjacent.has(cellKey(approach))) {
+      issues.push({ validator: "required_points_occupiable", detail: `${source.id} approach is not adjacent` });
+    }
+    if (!isOccupiable(input.grid, approach)) {
+      issues.push({ validator: "required_points_occupiable", detail: `${approach.x},${approach.y}` });
+    }
+  }
+  for (const counter of input.namedPoints.filter((point) => point.kind === "counter")) {
+    const prefix = counter.id.replace(/\.counter$/, "");
+    const shopkeeper = byId.get(`${prefix}.shopkeeper`);
+    const customer = byId.get(`${prefix}.customer`);
+    if (!shopkeeper || !customer) {
+      issues.push({ validator: "shop_has_two_sides", detail: `${prefix} missing shopkeeper or customer` });
+      continue;
+    }
+    if (cellKey(shopkeeper) === cellKey(customer) || cellKey(shopkeeper) === cellKey(counter) || cellKey(customer) === cellKey(counter)) {
+      issues.push({ validator: "shop_has_two_sides", detail: `${prefix} sides overlap` });
+    }
+    const counterNeighbours = new Set(orthogonalNeighbours(counter, input.wraps).map(cellKey));
+    if (!counterNeighbours.has(cellKey(shopkeeper)) || !counterNeighbours.has(cellKey(customer))) {
+      issues.push({ validator: "shop_has_two_sides", detail: `${prefix} sides not adjacent to counter` });
+    }
+    if (!isOccupiable(input.grid, customer)) {
+      issues.push({ validator: "shop_has_two_sides", detail: `${prefix} customer not occupiable` });
     }
   }
   return issues;

@@ -14,7 +14,7 @@ import {
 import { bytesToHex, sha256 } from "./sha256";
 import { boundedInt } from "./semantic-random";
 import { canonicalizeValue } from "./canonical";
-import { allCells, emptyGrid } from "./grid";
+import { allCells, cellKey, emptyGrid, orthogonalNeighbours } from "./grid";
 import {
   generateBlob,
   generateRectangle,
@@ -24,8 +24,16 @@ import {
 } from "./geometry-primitives";
 import { isOccupiable } from "./plane-occupancy";
 import { repairPlaneGeometry } from "./plane-repair";
-import type { NamedPoint, PlaneBase, PlaneGrid, PlaneRepairEvent, PrimitiveContext } from "./plane-types";
-import { validatePlaneGeometry } from "./plane-validate";
+import type {
+  NamedPoint,
+  PlaneBase,
+  PlaneGenerationResult,
+  PlaneGrid,
+  PlaneRepairEvent,
+  PlaneValidationIssue,
+  PrimitiveContext,
+} from "./plane-types";
+import { interactionPoints, validatePlaneGeometry } from "./plane-validate";
 import type { WorldTopology } from "./topology-types";
 
 const FAMILY_BASE_TILE: Record<FamilyId, string> = {
@@ -108,14 +116,81 @@ function placeFeature(
   grid.featureOrigin[cell.y]![cell.x] = origin;
 }
 
-function chooseOccupiable(ctx: PrimitiveContext, grid: PlaneGrid, tag: string): MapCoordinate | null {
-  const cells = allCells().filter((cell) => isOccupiable(grid, cell));
+function isFreeOccupiable(grid: PlaneGrid, cell: MapCoordinate, reserved: Set<string>): boolean {
+  return isOccupiable(grid, cell) && !reserved.has(cellKey(cell));
+}
+
+function reserve(reserved: Set<string>, cell: MapCoordinate): void {
+  reserved.add(cellKey(cell));
+}
+
+function pickCell(ctx: PrimitiveContext, tag: string, cells: readonly MapCoordinate[]): MapCoordinate | null {
   if (cells.length === 0) {
     return null;
   }
   const sorted = [...cells].sort(compareCoordinates);
   const index = boundedInt(primitiveParts(ctx, tag), 0, sorted.length - 1);
   return sorted[index]!;
+}
+
+function freeNeighbours(grid: PlaneGrid, wraps: boolean, cell: MapCoordinate, reserved: Set<string>): MapCoordinate[] {
+  return orthogonalNeighbours(cell, wraps).filter((neighbour) => isFreeOccupiable(grid, neighbour, reserved));
+}
+
+function chooseOccupiable(
+  ctx: PrimitiveContext,
+  grid: PlaneGrid,
+  reserved: Set<string>,
+  tag: string,
+): MapCoordinate | null {
+  return pickCell(ctx, tag, allCells().filter((cell) => isFreeOccupiable(grid, cell, reserved)));
+}
+
+function chooseBlockingInteractable(
+  ctx: PrimitiveContext,
+  grid: PlaneGrid,
+  wraps: boolean,
+  reserved: Set<string>,
+  tag: string,
+): { object: MapCoordinate; approach: MapCoordinate } | null {
+  const candidates = allCells().filter(
+    (cell) => isFreeOccupiable(grid, cell, reserved) && freeNeighbours(grid, wraps, cell, reserved).length > 0,
+  );
+  const object = pickCell(ctx, `${tag}.object`, candidates);
+  if (!object) {
+    return null;
+  }
+  const approach = pickCell(ctx, `${tag}.approach`, freeNeighbours(grid, wraps, object, reserved));
+  if (!approach) {
+    return null;
+  }
+  return { object, approach };
+}
+
+function chooseShopGeometry(
+  ctx: PrimitiveContext,
+  grid: PlaneGrid,
+  wraps: boolean,
+  reserved: Set<string>,
+): { counter: MapCoordinate; shopkeeper: MapCoordinate; customer: MapCoordinate } | null {
+  const candidates = allCells().filter(
+    (cell) => isFreeOccupiable(grid, cell, reserved) && freeNeighbours(grid, wraps, cell, reserved).length >= 2,
+  );
+  const counter = pickCell(ctx, "shop.counter", candidates);
+  if (!counter) {
+    return null;
+  }
+  const sides = freeNeighbours(grid, wraps, counter, reserved);
+  const shopkeeper = pickCell(ctx, "shop.shopkeeper", sides);
+  if (!shopkeeper) {
+    return null;
+  }
+  const remaining = sides.filter((cell) => cellKey(cell) !== cellKey(shopkeeper));
+  const customer = pickCell(ctx, "shop.customer", remaining);
+  if (!customer) {
+    return null;
+  }
+  return { counter, shopkeeper, customer };
 }
 
 export function hashPlaneBase(plane: Omit<PlaneBase, "planeHash">): string {
@@ -142,7 +217,7 @@ export function generatePlaneBase(
   topology: WorldTopology,
   plane: PlanePair,
   generatorVersion = CORE_IDENTITY.generatorVersion,
-): PlaneBase {
+): PlaneGenerationResult {
   const family = familyForPlane(plane, topology);
   const wraps = wrapsForFamily(family);
   const baseTile = FAMILY_BASE_TILE[family];
@@ -176,7 +251,8 @@ export function generatePlaneBase(
 
   const namedPoints: NamedPoint[] = [];
   const transitionFixtures: { transitionId: string; x: number; y: number }[] = [];
-  const repairs: PlaneRepairEvent[] = [];
+  const placementFailures: PlaneValidationIssue[] = [];
+  const reserved = new Set<string>();
 
   if (planesEqual(plane, STARTING_PLANE)) {
     const stamp = generateStamp(
@@ -191,9 +267,11 @@ export function generatePlaneBase(
         grid.terrain[anchor.y]![anchor.x] = baseTile;
         placeFeature(grid, anchor, "safe_anchor", "required");
         namedPoints.push({ id: "safe_anchor", kind: "anchor", x: anchor.x, y: anchor.y });
+        reserve(reserved, anchor);
         const approach = stamp.namedPoints.approach ?? { x: anchor.x, y: Math.min(MAP_SIZE - 1, anchor.y + 1) };
         grid.terrain[approach.y]![approach.x] = baseTile;
         namedPoints.push({ id: "safe_anchor.approach", kind: "approach", x: approach.x, y: approach.y });
+        reserve(reserved, approach);
       }
     }
   }
@@ -209,6 +287,7 @@ export function generatePlaneBase(
       paintTerrain(grid, stamp.cells, "divine_floor");
       for (const [kind, point] of Object.entries(stamp.namedPoints)) {
         namedPoints.push({ id: `olympus.${kind}`, kind, x: point.x, y: point.y });
+        reserve(reserved, point);
       }
     }
   }
@@ -218,72 +297,142 @@ export function generatePlaneBase(
   );
   transitions.forEach((transition, index) => {
     const ctx = context(generatorVersion, worldSeed, plane, "transitions", transition.id, index);
-    const cell = chooseOccupiable(ctx, grid, "fixture") ?? allCells()[0]!;
+    const cell = chooseOccupiable(ctx, grid, reserved, "fixture");
+    if (!cell) {
+      placementFailures.push({ validator: "required_fixture_unplaced", detail: transition.id });
+      return;
+    }
     grid.terrain[cell.y]![cell.x] = baseTile;
     placeFeature(grid, cell, "transition_fixture", "required");
     transitionFixtures.push({ transitionId: transition.id, x: cell.x, y: cell.y });
     namedPoints.push({ id: `transition.${transition.id}`, kind: "transition", x: cell.x, y: cell.y });
+    reserve(reserved, cell);
   });
 
   const sources = topology.progressionSources.filter((source) => planesEqual(source.plane, plane));
   sources.forEach((source, index) => {
     const ctx = context(generatorVersion, worldSeed, plane, "items", source.id, index);
-    const cell = chooseOccupiable(ctx, grid, "source") ?? allCells()[0]!;
-    grid.terrain[cell.y]![cell.x] = baseTile;
-    if (source.sourceType === "container" || source.sourceType === "fixed_item") {
-      placeFeature(grid, cell, "container_chest", "required");
+    const blocking = source.sourceType === "container" || source.sourceType === "fixed_item";
+    if (blocking) {
+      const placed = chooseBlockingInteractable(ctx, grid, wraps, reserved, "source");
+      if (!placed) {
+        placementFailures.push({ validator: "required_fixture_unplaced", detail: source.id });
+        return;
+      }
+      grid.terrain[placed.object.y]![placed.object.x] = baseTile;
+      grid.terrain[placed.approach.y]![placed.approach.x] = baseTile;
+      placeFeature(grid, placed.object, "container_chest", "required");
+      namedPoints.push({ id: source.id, kind: "source", x: placed.object.x, y: placed.object.y });
+      namedPoints.push({ id: `${source.id}.approach`, kind: "approach", x: placed.approach.x, y: placed.approach.y });
+      reserve(reserved, placed.object);
+      reserve(reserved, placed.approach);
+      return;
     }
-    namedPoints.push({ id: source.id, kind: "source", x: cell.x, y: cell.y });
+    const cell = chooseOccupiable(ctx, grid, reserved, "source");
+    if (!cell) {
+      placementFailures.push({ validator: "required_fixture_unplaced", detail: source.id });
+      return;
+    }
+    grid.terrain[cell.y]![cell.x] = baseTile;
+    namedPoints.push({ id: source.id, kind: "source-interact", x: cell.x, y: cell.y });
+    reserve(reserved, cell);
   });
 
   const shops = topology.shopInstances.filter((shop) => planesEqual(shop.plane, plane));
   shops.forEach((shop, index) => {
     const ctx = context(generatorVersion, worldSeed, plane, "npcs", shop.id, index);
-    const cell = chooseOccupiable(ctx, grid, "shop") ?? allCells()[0]!;
-    grid.terrain[cell.y]![cell.x] = baseTile;
-    placeFeature(grid, cell, "counter", "required");
-    namedPoints.push({ id: shop.id, kind: "shop", x: cell.x, y: cell.y });
+    const placed = chooseShopGeometry(ctx, grid, wraps, reserved);
+    if (!placed) {
+      placementFailures.push({ validator: "required_fixture_unplaced", detail: shop.id });
+      return;
+    }
+    grid.terrain[placed.counter.y]![placed.counter.x] = baseTile;
+    grid.terrain[placed.shopkeeper.y]![placed.shopkeeper.x] = baseTile;
+    grid.terrain[placed.customer.y]![placed.customer.x] = baseTile;
+    placeFeature(grid, placed.counter, "counter", "required");
+    namedPoints.push({ id: `${shop.id}.counter`, kind: "counter", x: placed.counter.x, y: placed.counter.y });
+    namedPoints.push({ id: `${shop.id}.shopkeeper`, kind: "shopkeeper", x: placed.shopkeeper.x, y: placed.shopkeeper.y });
+    namedPoints.push({ id: `${shop.id}.customer`, kind: "customer", x: placed.customer.x, y: placed.customer.y });
+    reserve(reserved, placed.counter);
+    reserve(reserved, placed.shopkeeper);
+    reserve(reserved, placed.customer);
   });
 
-  const requiredPoints = namedPoints
-    .filter((point) => point.kind !== "anchor")
-    .map((point) => ({ x: point.x, y: point.y }));
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const issues = validatePlaneGeometry({
-      grid,
-      wraps,
-      family,
-      namedPoints,
-      requiredPoints,
-      transitionFixtures,
-    });
-    if (issues.length === 0) {
-      break;
-    }
-    const applied = repairPlaneGeometry(grid, wraps, baseTile, requiredPoints, namedPoints, issues);
-    repairs.push(...applied);
-    if (applied.length === 0) {
-      break;
-    }
-  }
-
-  const spawnRegions = [
-    { tag: "playerEntry", cells: requiredPoints.length > 0 ? [requiredPoints[0]!] : [{ x: 8, y: 8 }] },
-  ];
-  const planeWithoutHash = {
+  return finalizePlaneGeometry({
     generatorVersion,
     worldSeed,
     plane,
     family,
     wraps,
-    terrain: grid.terrain.map((row) => [...row]),
-    features: grid.features.map((row) => [...row]),
-    namedPoints: [...namedPoints].sort((left, right) => compareCoordinates(left, right) || (left.id < right.id ? -1 : 1)),
+    baseTile,
+    grid,
+    namedPoints,
+    transitionFixtures,
+    placementFailures,
+  });
+}
+
+export function finalizePlaneGeometry(input: {
+  readonly generatorVersion: string;
+  readonly worldSeed: string;
+  readonly plane: PlanePair;
+  readonly family: FamilyId;
+  readonly wraps: boolean;
+  readonly baseTile: string;
+  readonly grid: PlaneGrid;
+  readonly namedPoints: NamedPoint[];
+  readonly transitionFixtures: { transitionId: string; x: number; y: number }[];
+  readonly placementFailures?: readonly PlaneValidationIssue[];
+  readonly repairs?: PlaneRepairEvent[];
+}): PlaneGenerationResult {
+  const repairs: PlaneRepairEvent[] = [...(input.repairs ?? [])];
+  const requiredPoints = interactionPoints(input.namedPoints).map((point) => ({ x: point.x, y: point.y }));
+  const validationInput = () => ({
+    grid: input.grid,
+    wraps: input.wraps,
+    family: input.family,
+    namedPoints: input.namedPoints,
+    requiredPoints,
+    transitionFixtures: input.transitionFixtures,
+  });
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const issues = [...(input.placementFailures ?? []), ...validatePlaneGeometry(validationInput())];
+    if (issues.length === 0) {
+      break;
+    }
+    const applied = repairPlaneGeometry(input.grid, input.wraps, input.baseTile, requiredPoints, input.namedPoints, issues);
+    repairs.push(...applied);
+    if (applied.length === 0) {
+      break;
+    }
+  }
+  const issues = [...(input.placementFailures ?? []), ...validatePlaneGeometry(validationInput())];
+  if (issues.length > 0) {
+    return {
+      ok: false,
+      code: "PLANE_GEOMETRY_FAILURE",
+      message: issues.map((issue) => `${issue.validator}: ${issue.detail}`).join("; "),
+      issues,
+      plane: input.plane,
+    };
+  }
+  const spawnRegions = [
+    { tag: "playerEntry", cells: requiredPoints.length > 0 ? [requiredPoints[0]!] : [{ x: 8, y: 8 }] },
+  ];
+  const planeWithoutHash = {
+    generatorVersion: input.generatorVersion,
+    worldSeed: input.worldSeed,
+    plane: input.plane,
+    family: input.family,
+    wraps: input.wraps,
+    terrain: input.grid.terrain.map((row) => [...row]),
+    features: input.grid.features.map((row) => [...row]),
+    namedPoints: [...input.namedPoints].sort((left, right) => compareCoordinates(left, right) || (left.id < right.id ? -1 : 1)),
     spawnRegions,
-    transitionFixtures: [...transitionFixtures].sort((left, right) => compareCoordinates(left, right) || (left.transitionId < right.transitionId ? -1 : 1)),
+    transitionFixtures: [...input.transitionFixtures].sort((left, right) => compareCoordinates(left, right) || (left.transitionId < right.transitionId ? -1 : 1)),
     repairs,
   };
-  return { ...planeWithoutHash, planeHash: hashPlaneBase(planeWithoutHash) };
+  return { ok: true, plane: { ...planeWithoutHash, planeHash: hashPlaneBase(planeWithoutHash) } };
 }
 
 export function familyWraps(family: FamilyId): boolean {
