@@ -5,11 +5,16 @@ import {
   generateTopology,
   getAcceptedWorld,
   OLYMPUS_PLANE,
+  planeKey,
+  proofRequiredFixtures,
+  proveWinnable,
+  resolveProgressionOutcomes,
   STARTING_PLANE,
   summarizeAcceptedWorld,
   sweepAcceptedWorlds,
   deterministicSweepSeeds,
   witnessPlanes,
+  witnessPreflightTopology,
 } from "../../src/core";
 import type { PlaneGenerationResult } from "../../src/core";
 
@@ -30,6 +35,36 @@ function failPlane(plane = STARTING_PLANE): PlaneGenerationResult {
     issues: [{ validator: "required_points_connected", detail: "forced" }],
     plane,
   };
+}
+
+function attemptZeroProof(seed: string) {
+  const generated = generateTopology(seed, 0);
+  expect(generated.ok).toBe(true);
+  if (!generated.ok) {
+    throw new Error(generated.message);
+  }
+  const topology = resolveProgressionOutcomes(generated.topology);
+  const proof = proveWinnable(topology);
+  expect(proof.ok).toBe(true);
+  if (!proof.ok) {
+    throw new Error("expected solver pass");
+  }
+  return { topology, witness: proof.witness };
+}
+
+function nonWitnessFixtures(topology: ReturnType<typeof attemptZeroProof>["topology"], witness: ReturnType<typeof attemptZeroProof>["witness"]) {
+  const proof = proofRequiredFixtures(topology, witness);
+  const planes = new Set(witnessPlanes(witness).map(planeKey));
+  const extraSource = topology.progressionSources.find((source) => !proof.sourceIds.has(source.id) && planes.has(planeKey(source.plane)));
+  const extraShop = topology.shopInstances.find((shop) => !proof.shopIds.has(shop.id) && planes.has(planeKey(shop.plane)));
+  const extraTransition = topology.transitions.find(
+    (row) =>
+      !proof.transitionIds.has(row.id) &&
+      (planes.has(planeKey(row.sourcePlane)) || planes.has(planeKey(row.destinationPlane))),
+  );
+  const witnessSource = topology.progressionSources.find((source) => proof.sourceIds.has(source.id));
+  const witnessTransition = topology.transitions.find((row) => proof.transitionIds.has(row.id));
+  return { proof, extraSource, extraShop, extraTransition, witnessSource, witnessTransition };
 }
 
 describe("accepted world pipeline", () => {
@@ -129,6 +164,109 @@ describe("accepted world pipeline", () => {
     expect(world.witness.some((step) => step.type === "REACH_OLYMPUS" || step.type === "FINAL_BOSS_AVAILABLE")).toBe(true);
   });
 
+  it("rejects when a proof-required witness fixture is unrealizable", () => {
+    const seed = "0";
+    const { topology, witness } = attemptZeroProof(seed);
+    const { witnessSource, witnessTransition } = nonWitnessFixtures(topology, witness);
+    const requiredId = witnessSource?.id ?? witnessTransition?.id;
+    expect(requiredId).toBeDefined();
+    const result = getAcceptedWorld("tight-v1", seed, {
+      generatePlane: (worldSeed, scoped, plane) => {
+        const present =
+          scoped.progressionSources.some((source) => source.id === requiredId) ||
+          scoped.transitions.some((row) => row.id === requiredId);
+        if (scoped.topologyAttempt === 0 && present) {
+          return failPlane(plane);
+        }
+        return generatePlaneBase(worldSeed, scoped, plane);
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    expect(result.acceptedAttempt).toBeGreaterThan(0);
+    expect(result.rejectedAttempts[0]?.code).toBe("TOPOLOGY_REALIZATION_FAILURE");
+  });
+
+  it("does not reject a realizable witness when a non-witness fixture on the same plane is unrealizable", () => {
+    const seed = "0";
+    const { topology, witness } = attemptZeroProof(seed);
+    const { extraSource, extraShop, extraTransition } = nonWitnessFixtures(topology, witness);
+    expect(extraSource ?? extraShop ?? extraTransition).toBeDefined();
+    const baseline = requireWorld("tight-v1", seed);
+    const result = getAcceptedWorld("tight-v1", seed, {
+      generatePlane: (worldSeed, scoped, plane) => {
+        if (extraSource && scoped.progressionSources.some((source) => source.id === extraSource.id)) {
+          return failPlane(plane);
+        }
+        if (extraShop && scoped.shopInstances.some((shop) => shop.id === extraShop.id)) {
+          return failPlane(plane);
+        }
+        if (extraTransition && scoped.transitions.some((row) => row.id === extraTransition.id)) {
+          return failPlane(plane);
+        }
+        return generatePlaneBase(worldSeed, scoped, plane);
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    expect(result.acceptedAttempt).toBe(baseline.acceptedAttempt);
+    expect(result.topologyHash).toBe(baseline.topologyHash);
+  });
+
+  it("does not let non-witness shop or source identity change the accepted world", () => {
+    const seed = "0";
+    const { topology, witness } = attemptZeroProof(seed);
+    const { extraSource, extraShop } = nonWitnessFixtures(topology, witness);
+    expect(extraSource ?? extraShop).toBeDefined();
+    const failIfPresent = (id: string, kind: "source" | "shop") =>
+      getAcceptedWorld("tight-v1", seed, {
+        generatePlane: (worldSeed, scoped, plane) => {
+          const present =
+            kind === "source"
+              ? scoped.progressionSources.some((source) => source.id === id)
+              : scoped.shopInstances.some((shop) => shop.id === id);
+          if (present) {
+            return failPlane(plane);
+          }
+          return generatePlaneBase(worldSeed, scoped, plane);
+        },
+      });
+    const first = extraSource ? failIfPresent(extraSource.id, "source") : failIfPresent(extraShop!.id, "shop");
+    const second = extraShop ? failIfPresent(extraShop.id, "shop") : failIfPresent(extraSource!.id, "source");
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      throw new Error("expected both identities to accept");
+    }
+    expect(first.acceptedAttempt).toBe(second.acceptedAttempt);
+    expect(first.topologyHash).toBe(second.topologyHash);
+  });
+
+  it("keeps non-witness fixtures on the accepted topology for later full plane realization", () => {
+    const seed = "0";
+    const world = requireWorld("tight-v1", seed);
+    const { extraSource, extraShop, extraTransition } = nonWitnessFixtures(world.topology, world.witness);
+    const extra = extraSource ?? extraShop ?? extraTransition;
+    expect(extra).toBeDefined();
+    const plane = "plane" in extra! ? extra.plane : extra!.sourcePlane;
+    const scoped = generatePlaneBase(seed, witnessPreflightTopology(world.topology, world.witness), plane);
+    const full = generatePlaneBase(seed, world.topology, plane);
+    expect(scoped.ok).toBe(true);
+    expect(full.ok).toBe(true);
+    if (!scoped.ok || !full.ok) {
+      throw new Error("expected both generations to succeed");
+    }
+    const extraId = extra!.id;
+    expect(scoped.plane.namedPoints.some((point) => point.id === extraId || point.id.startsWith(`${extraId}.`))).toBe(false);
+    expect(
+      full.plane.namedPoints.some((point) => point.id === extraId || point.id.startsWith(`${extraId}.`) || point.id === `transition.${extraId}`),
+    ).toBe(true);
+  });
+
   it("records a deterministic regression corpus", () => {
     const corpus = [
       summarizeAcceptedWorld(requireWorld("tight-v1", "0")),
@@ -155,8 +293,8 @@ describe("accepted world pipeline", () => {
           "UNLOCK_GATE",
         ],
         preflightPlaneCount: 116,
-        startPlaneHash: "dfb483a4a17b173ada5167fd8e44865ddebe30829d745031715107efd85a398f",
-        olympusPlaneHash: "112b4efa1c41e22c4f8c1b0a64426c864fb278d914f7e7d8baeb3745c4e6a2f5",
+        startPlaneHash: "cb7dfca91190b0bbad6477ca908c58008b85e79f67bf0405e03c3906b4b2476d",
+        olympusPlaneHash: "2dd7ee3450157270a23653bac720bb8935b85f00e7fc9a781994fbdb7cc1cdbd",
         rejectedAttemptCount: 0,
       },
       {
@@ -178,8 +316,8 @@ describe("accepted world pipeline", () => {
           "UNLOCK_GATE",
         ],
         preflightPlaneCount: 115,
-        startPlaneHash: "c3f6ebd16db90b7141bf164527d6ac6d77c3e670aac3b8d02fcd1c241ecd99f2",
-        olympusPlaneHash: "cb611435bfbdc6e0363bbb6fda102fe8aeae54ed6163a83b2794d553b30576c9",
+        startPlaneHash: "de63625eca695566b2df2d705c895d85428c56835c6a60113bec34162e878db4",
+        olympusPlaneHash: "c8ddaa9263142dc178a9b9c955a1eaa49790dae85c5d723f54c95986352b329f",
         rejectedAttemptCount: 0,
       },
       {
@@ -201,8 +339,8 @@ describe("accepted world pipeline", () => {
           "UNLOCK_GATE",
         ],
         preflightPlaneCount: 112,
-        startPlaneHash: "f5cfb953ba8f16247ebd8c1dac8e5c4a2fc50e79d9eb86a42182071c13d7bb88",
-        olympusPlaneHash: "065c55c3b6a82d09669b27a219eed6589bf7f697f25f0d898717e99767e0bce5",
+        startPlaneHash: "c09847030208717d20e49dbe33a6880f2c8c8202c1e99b210c1b299a22e20fc0",
+        olympusPlaneHash: "5c633b92ef1501f1903639caaee632a0128b1ed24544ce65ce3f4abdfab891de",
         rejectedAttemptCount: 0,
       },
     ]);

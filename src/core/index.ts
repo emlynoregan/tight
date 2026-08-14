@@ -49,7 +49,7 @@ export {
 export { canonicalizeTopology } from "./generation/canonical";
 export { resolveProgressionOutcomes, resolveRewardProfileDrop } from "./generation/resolve-progression";
 export { proveWinnable } from "./generation/winnability-solver";
-export { getAcceptedWorld, preflightWitnessPlanes, summarizeAcceptedWorld, createAcceptedWorldCache, witnessPlanes } from "./generation/accepted-world";
+export { getAcceptedWorld, preflightWitnessPlanes, summarizeAcceptedWorld, createAcceptedWorldCache, witnessPlanes, proofRequiredFixtures, witnessPreflightTopology } from "./generation/accepted-world";
 export { sweepAcceptedWorlds, deterministicSweepSeeds } from "./generation/seed-sweep";
 export { potentialNeighbours, sharesExactlyOneDimension } from "./generation/topology-neighbours";
 export { planeEligibleForArchetype } from "./data/eligibility";

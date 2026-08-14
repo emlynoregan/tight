@@ -7,7 +7,7 @@ import type { PlaneGenerationResult } from "./plane-types";
 import { resolveProgressionOutcomes } from "./resolve-progression";
 import type { SolverResult, WitnessStep } from "./solver-types";
 import { generateTopology } from "./topology-generator";
-import type { WorldTopology } from "./topology-types";
+import type { ProgressionSource, ShopInstance, WorldTopology } from "./topology-types";
 import { proveWinnable } from "./winnability-solver";
 
 export type PlaneGenerateFn = (
@@ -90,6 +90,64 @@ function mapStructuralCode(code: string): string {
   return code;
 }
 
+export interface ProofRequiredFixtures {
+  readonly transitionIds: ReadonlySet<string>;
+  readonly sourceIds: ReadonlySet<string>;
+  readonly shopIds: ReadonlySet<string>;
+}
+
+function shopIdForStockSource(source: ProgressionSource, shops: readonly ShopInstance[]): string | null {
+  if (source.sourceType !== "shop_stock") {
+    return null;
+  }
+  const matches = shops.filter((shop) => source.id.startsWith(`source.shop_stock.${shop.id}.`));
+  if (matches.length === 0) {
+    return null;
+  }
+  return [...matches].sort((left, right) => right.id.length - left.id.length)[0]!.id;
+}
+
+export function proofRequiredFixtures(topology: WorldTopology, witness: readonly WitnessStep[]): ProofRequiredFixtures {
+  const transitionIds = new Set<string>();
+  const sourceIds = new Set<string>();
+  const shopIds = new Set<string>();
+  const gatesById = new Map(topology.gates.map((gate) => [gate.id, gate]));
+  for (const step of witness) {
+    if (step.type === "TRAVERSE_TRANSITION" && step.id) {
+      transitionIds.add(step.id);
+    }
+    if (step.type === "UNLOCK_GATE" && step.id) {
+      const gate = gatesById.get(step.id);
+      if (gate) {
+        transitionIds.add(gate.transitionId);
+      }
+    }
+    if ((step.type === "COLLECT_SOURCE" || step.type === "BUY_ITEM") && step.id) {
+      sourceIds.add(step.id);
+    }
+  }
+  for (const source of topology.progressionSources) {
+    if (!sourceIds.has(source.id)) {
+      continue;
+    }
+    const shopId = shopIdForStockSource(source, topology.shopInstances);
+    if (shopId) {
+      shopIds.add(shopId);
+    }
+  }
+  return { transitionIds, sourceIds, shopIds };
+}
+
+export function witnessPreflightTopology(topology: WorldTopology, witness: readonly WitnessStep[]): WorldTopology {
+  const proof = proofRequiredFixtures(topology, witness);
+  return {
+    ...topology,
+    transitions: topology.transitions.filter((row) => proof.transitionIds.has(row.id)),
+    progressionSources: topology.progressionSources.filter((row) => proof.sourceIds.has(row.id)),
+    shopInstances: topology.shopInstances.filter((row) => proof.shopIds.has(row.id)),
+  };
+}
+
 export function witnessPlanes(witness: readonly WitnessStep[]): PlanePair[] {
   const seen = new Set<string>();
   const planes: PlanePair[] = [];
@@ -119,9 +177,10 @@ export function preflightWitnessPlanes(
   generatePlane: PlaneGenerateFn = (worldSeed, world, plane) => generatePlaneBase(worldSeed, world, plane),
 ): WitnessPreflightResult {
   void version;
+  const scoped = witnessPreflightTopology(topology, witness);
   const planes: PreflightedPlane[] = [];
   for (const plane of witnessPlanes(witness)) {
-    const generated = generatePlane(seed, topology, plane);
+    const generated = generatePlane(seed, scoped, plane);
     if (!generated.ok) {
       return {
         ok: false,
