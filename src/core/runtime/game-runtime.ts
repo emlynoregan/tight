@@ -9,7 +9,8 @@ import type { WorldTopology } from "../generation/topology-types";
 import { GLOBAL_CONSTANTS } from "../model/constants";
 import type { GeneratorVersionId } from "../model/ids";
 import { planesEqual, STARTING_PLANE, type MapCoordinate, type PlanePair } from "../model/plane";
-import type { ActorState, EquipmentLoadout, SaveState } from "../model/save-state";
+import type { ActorState, EquipmentLoadout, IntentionalAction, SaveState } from "../model/save-state";
+import { scaledMonster } from "../rules/actor-stats";
 import { materializeRuntimePlane } from "./materialize-plane";
 
 export function maxHpForCon(con: number): number {
@@ -23,6 +24,7 @@ export interface GameRuntime {
   save: SaveState;
   currentPlaneBase: PlaneBase;
   omittedFixtureIds: readonly string[];
+  scriptedActions: Map<string, IntentionalAction>;
 }
 
 export interface CreateNewGameOptions extends AcceptedWorldOptions {
@@ -62,11 +64,14 @@ function actorAtPoint(
   kind: ActorState["kind"],
   plane: PlanePair,
   point: MapCoordinate | undefined,
-  spd: number,
 ): ActorState | null {
   if (!point) {
     return null;
   }
+  const species = CONTENT_REGISTRY.byId.monster.get(definitionId);
+  const scaled = species ? scaledMonster(species, plane) : null;
+  const maxHp = scaled?.maxHp ?? maxHpForCon(GLOBAL_CONSTANTS.playerStartingAttribute);
+  const spd = scaled?.attributes.spd ?? GLOBAL_CONSTANTS.playerStartingAttribute;
   return {
     id,
     definitionId,
@@ -74,11 +79,13 @@ function actorAtPoint(
     plane,
     x: point.x,
     y: point.y,
-    hp: 1,
-    maxHp: 1,
+    hp: maxHp,
+    maxHp,
     spd,
     initiativeModifier: 0,
     blocking: true,
+    statuses: [],
+    cooldowns: [],
   };
 }
 
@@ -90,7 +97,7 @@ export function materializeActors(topology: WorldTopology, planeBase: PlaneBase,
     if (!planesEqual(npc.plane, planeBase.plane)) {
       continue;
     }
-    const actor = actorAtPoint(npc.id, npc.npcId, "npc", npc.plane, points.get(npc.id), GLOBAL_CONSTANTS.playerStartingAttribute);
+    const actor = actorAtPoint(npc.id, npc.npcId, "npc", npc.plane, points.get(npc.id));
     if (!actor || occupied.has(`${actor.y},${actor.x}`)) {
       continue;
     }
@@ -101,7 +108,7 @@ export function materializeActors(topology: WorldTopology, planeBase: PlaneBase,
     if (!planesEqual(guardian.plane, planeBase.plane)) {
       continue;
     }
-    const actor = actorAtPoint(guardian.id, guardian.monsterId, "guardian", guardian.plane, points.get(guardian.id), GLOBAL_CONSTANTS.playerStartingAttribute);
+    const actor = actorAtPoint(guardian.id, guardian.monsterId, "guardian", guardian.plane, points.get(guardian.id));
     if (!actor || occupied.has(`${actor.y},${actor.x}`)) {
       continue;
     }
@@ -131,6 +138,8 @@ export function createRuntimeFromAccepted(
     spd: STARTING_PLAYER_STATE.attributes.spd,
     initiativeModifier: 0,
     blocking: true,
+    statuses: [],
+    cooldowns: [],
   };
   const save: SaveState = {
     generatorVersion: world.topology.generatorVersion,
@@ -164,6 +173,7 @@ export function createRuntimeFromAccepted(
     save,
     currentPlaneBase: planeBase,
     omittedFixtureIds,
+    scriptedActions: new Map(),
   };
 }
 
@@ -189,4 +199,33 @@ export function playerActor(runtime: GameRuntime): ActorState {
     throw new Error("player actor missing from save");
   }
   return actor;
+}
+
+export function createMonsterActor(
+  id: string,
+  speciesId: string,
+  plane: PlanePair,
+  x: number,
+  y: number,
+): ActorState {
+  const species = CONTENT_REGISTRY.byId.monster.get(speciesId);
+  if (!species) {
+    throw new Error(`unknown monster ${speciesId}`);
+  }
+  const scaled = scaledMonster(species, plane);
+  return {
+    id,
+    definitionId: speciesId,
+    kind: "monster",
+    plane,
+    x,
+    y,
+    hp: scaled.maxHp,
+    maxHp: scaled.maxHp,
+    spd: scaled.attributes.spd,
+    initiativeModifier: 0,
+    blocking: true,
+    statuses: [],
+    cooldowns: [],
+  };
 }

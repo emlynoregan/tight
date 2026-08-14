@@ -181,6 +181,20 @@ export interface StatusDefinition {
   readonly name: string;
   readonly durationTicks: number | "until_broken";
   readonly effectSummary: string;
+  readonly stackingRule: "refresh";
+  readonly attributeMods: Readonly<Partial<AttributeBlock>>;
+  readonly periodicEffectId: CatalogueId | null;
+  readonly preventsIntentionalActions: boolean;
+  readonly preventsSpellAbilities: boolean;
+  readonly preventsPersonalTransition: boolean;
+  readonly ignoresPhaseBlockers: boolean;
+  readonly hidden: boolean;
+  readonly blinds: boolean;
+  readonly breaksOnHostileAction: boolean;
+  readonly immuneToStatusIds: readonly CatalogueId[];
+  readonly resistanceAtLeast: ResistanceEntry | null;
+  readonly armourPhysicalBonus: number;
+  readonly clearedOnPlayerDeath: boolean;
 }
 
 export type EffectKind =
@@ -201,6 +215,7 @@ export interface AtomicEffect {
   readonly statusId?: CatalogueId;
   readonly damageType?: DamageTypeId;
   readonly noHitRoll?: boolean;
+  readonly moveMode?: "push" | "pull";
 }
 
 export interface EffectBundle {
@@ -217,6 +232,15 @@ export interface AbilityDefinition {
   readonly tags: readonly string[];
   readonly acquisitionClass?: string;
   readonly kind: "combat" | "dimensional" | "item" | "monster" | "learn_event";
+}
+
+export interface ItemCombatMods {
+  readonly armourPhysical: number;
+  readonly armourPiercing: number;
+  readonly attributeMods: Readonly<Partial<AttributeBlock>>;
+  readonly resistanceMods: readonly ResistanceEntry[];
+  readonly initiativeModifier: number;
+  readonly protectionTags: readonly string[];
 }
 
 export interface ItemDefinition {
@@ -241,6 +265,7 @@ export interface ItemDefinition {
   readonly stackSize: number;
   readonly tags: readonly string[];
   readonly useAbilityId: CatalogueId | null;
+  readonly combat: ItemCombatMods;
 }
 
 export interface AttributeBlock {

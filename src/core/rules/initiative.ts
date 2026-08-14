@@ -7,10 +7,15 @@ export interface InitiativeEntry {
   readonly tieBreak: bigint;
 }
 
-export function initiativeOrder(actors: readonly ActorState[], worldSeed: string, tick: number): InitiativeEntry[] {
+export function initiativeOrder(
+  actors: readonly ActorState[],
+  worldSeed: string,
+  tick: number,
+  scoreFor: (actor: ActorState) => number = (actor) => actor.spd + actor.initiativeModifier,
+): InitiativeEntry[] {
   const entries = actors.map((actor) => ({
     actorId: actor.id,
-    score: actor.spd + actor.initiativeModifier,
+    score: scoreFor(actor),
     tieBreak: randomUint64([
       semantic.string("initiative.tiebreak"),
       semantic.string(worldSeed),

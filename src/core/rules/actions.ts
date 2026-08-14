@@ -3,16 +3,11 @@ import type { PlaneBase } from "../generation/plane-types";
 import type { MapCoordinate } from "../model/plane";
 import type { ActorState, IntentionalAction, SaveState } from "../model/save-state";
 import { DIRECTION_DELTA } from "../model/save-state";
+import { prepareAction, resolveAbilityAction, resolveAttackAction, resolveItemAction } from "./combat";
 import { canOccupy, destinationCell, featureAt, featureIsInteractive } from "./occupancy";
+import type { TickEvent } from "./tick-events";
 
-export interface TickEvent {
-  readonly type: string;
-  readonly actorId?: string;
-  readonly detail?: string;
-  readonly x?: number;
-  readonly y?: number;
-  readonly targetId?: string;
-}
+export type { TickEvent } from "./tick-events";
 
 function adjacentCells(origin: MapCoordinate, wraps: boolean): MapCoordinate[] {
   return ORTHOGONAL.map((delta) => destinationCell(origin, delta, wraps)).filter((cell): cell is MapCoordinate => cell !== null);
@@ -24,14 +19,19 @@ export function resolveAction(
   actor: ActorState,
   action: IntentionalAction,
 ): TickEvent[] {
-  if (action.type === "wait") {
+  const prepared = prepareAction(save, actor, action);
+  if ("failed" in prepared) {
+    return [{ type: "action_failed", actorId: actor.id, detail: prepared.failed }];
+  }
+  const resolved = prepared;
+  if (resolved.type === "wait") {
     return [{ type: "action_waited", actorId: actor.id }];
   }
-  if (action.type === "move") {
-    if (!action.direction) {
+  if (resolved.type === "move") {
+    if (!resolved.direction) {
       return [{ type: "action_failed", actorId: actor.id, detail: "missing direction" }];
     }
-    const dest = destinationCell(actor, DIRECTION_DELTA[action.direction], plane.wraps);
+    const dest = destinationCell(actor, DIRECTION_DELTA[resolved.direction], plane.wraps);
     if (!dest || !canOccupy(plane, save.actors, dest, actor.id)) {
       return [{ type: "action_failed", actorId: actor.id, detail: "blocked" }];
     }
@@ -39,8 +39,17 @@ export function resolveAction(
     actor.y = dest.y;
     return [{ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y }];
   }
-  if (action.type === "interact") {
-    return resolveInteract(save, plane, actor, action.targetId);
+  if (resolved.type === "interact") {
+    return resolveInteract(save, plane, actor, resolved.targetId);
+  }
+  if (resolved.type === "attack") {
+    return resolveAttackAction(save, plane, actor, resolved, save.family);
+  }
+  if (resolved.type === "ability") {
+    return resolveAbilityAction(save, plane, actor, resolved, save.family);
+  }
+  if (resolved.type === "item") {
+    return resolveItemAction(save, plane, actor, resolved);
   }
   return [{ type: "action_failed", actorId: actor.id, detail: "unknown action" }];
 }

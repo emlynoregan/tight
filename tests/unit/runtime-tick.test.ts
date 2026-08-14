@@ -212,6 +212,8 @@ describe("runtime tick engine", () => {
         spd: 4,
         initiativeModifier: 0,
         blocking: true,
+        statuses: [],
+        cooldowns: [],
       },
       {
         id: "actor.a",
@@ -225,6 +227,8 @@ describe("runtime tick engine", () => {
         spd: 4,
         initiativeModifier: 0,
         blocking: true,
+        statuses: [],
+        cooldowns: [],
       },
     ];
     const first = initiativeOrder(actors, "0", 0).map((row) => row.actorId);

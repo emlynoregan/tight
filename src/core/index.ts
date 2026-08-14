@@ -68,7 +68,7 @@ export type {
   PrimitiveResult,
 } from "./generation/plane-types";
 export type { SolverResult, SolverFailure, SolverSearchOptions, WitnessStep } from "./generation/solver-types";
-export { createNewGame, hashSaveState, playerActor } from "./runtime/game-runtime";
+export { createNewGame, hashSaveState, playerActor, createMonsterActor, maxHpForCon } from "./runtime/game-runtime";
 export type { GameRuntime, CreateNewGameOptions } from "./runtime/game-runtime";
 export { materializeRuntimePlane } from "./runtime/materialize-plane";
 export type { RuntimePlaneResult } from "./runtime/materialize-plane";
@@ -77,4 +77,9 @@ export type { PlayerCommand, CommandResult } from "./rules/commands";
 export { advanceTick } from "./rules/tick";
 export type { TickResult } from "./rules/tick";
 export { initiativeOrder } from "./rules/initiative";
+export { governingStat, hitChancePercent, rawDamage, resolveDamagePipeline, resolveFlatDamage } from "./rules/combat-math";
+export { CHANNEL_MULTIPLIER, RESISTANCE_MULTIPLIER } from "./model/constants";
+export { hasLineOfSight, hasLineOfEffect, supercoverLine } from "./rules/los";
+export { applyStatus, forcedMove } from "./rules/apply-effects";
+export { scaledMonster, effectiveAttributes, resistanceFor, flatArmour, channelStateForFamily } from "./rules/actor-stats";
 export type { SaveState, IntentionalAction, Direction, ActorState } from "./model/save-state";

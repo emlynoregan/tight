@@ -12,7 +12,7 @@ export const DIRECTION_DELTA: Record<Direction, MapCoordinate> = {
 
 export const DIRECTIONS: readonly Direction[] = ["north", "east", "south", "west"];
 
-export type ActorKind = "player" | "npc" | "guardian";
+export type ActorKind = "player" | "npc" | "guardian" | "monster";
 
 export interface ItemStack {
   readonly itemId: CatalogueId;
@@ -24,9 +24,25 @@ export type EquipmentLoadout = {
 };
 
 export interface IntentionalAction {
-  readonly type: "move" | "wait" | "interact";
+  readonly type: "move" | "wait" | "interact" | "attack" | "ability" | "item";
   readonly direction?: Direction;
   readonly targetId?: string;
+  readonly attackId?: CatalogueId;
+  readonly abilityId?: CatalogueId;
+  readonly itemId?: CatalogueId;
+  readonly targetX?: number;
+  readonly targetY?: number;
+}
+
+export interface StatusInstance {
+  id: CatalogueId;
+  remainingTicks: number | "until_broken";
+  sourceId: string | null;
+}
+
+export interface CooldownInstance {
+  id: CatalogueId;
+  remainingTicks: number;
 }
 
 export interface ActorState {
@@ -41,6 +57,8 @@ export interface ActorState {
   spd: number;
   initiativeModifier: number;
   blocking: boolean;
+  statuses: StatusInstance[];
+  cooldowns: CooldownInstance[];
 }
 
 export interface PlayerState {

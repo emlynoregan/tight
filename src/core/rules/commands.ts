@@ -27,6 +27,15 @@ export function isWellFormedAction(action: IntentionalAction): boolean {
   if (action.type === "interact") {
     return action.direction === undefined;
   }
+  if (action.type === "attack") {
+    return typeof action.attackId === "string" && action.attackId.length > 0;
+  }
+  if (action.type === "ability") {
+    return typeof action.abilityId === "string" && action.abilityId.length > 0;
+  }
+  if (action.type === "item") {
+    return typeof action.itemId === "string" && action.itemId.length > 0;
+  }
   return false;
 }
 

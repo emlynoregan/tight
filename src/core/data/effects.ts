@@ -1,27 +1,84 @@
-import type { AtomicEffect, AbilityDefinition, EffectBundle, StatusDefinition } from "../model/content-types";
+import type { AttributeBlock, AtomicEffect, AbilityDefinition, EffectBundle, StatusDefinition } from "../model/content-types";
+
+const NO_ATTR: Readonly<Partial<AttributeBlock>> = {};
+
+function status(
+  id: string,
+  name: string,
+  durationTicks: number | "until_broken",
+  effectSummary: string,
+  extras: Partial<Omit<StatusDefinition, "id" | "name" | "durationTicks" | "effectSummary">> = {},
+): StatusDefinition {
+  return {
+    id,
+    name,
+    durationTicks,
+    effectSummary,
+    stackingRule: "refresh",
+    attributeMods: extras.attributeMods ?? NO_ATTR,
+    periodicEffectId: extras.periodicEffectId ?? null,
+    preventsIntentionalActions: extras.preventsIntentionalActions ?? false,
+    preventsSpellAbilities: extras.preventsSpellAbilities ?? false,
+    preventsPersonalTransition: extras.preventsPersonalTransition ?? false,
+    ignoresPhaseBlockers: extras.ignoresPhaseBlockers ?? false,
+    hidden: extras.hidden ?? false,
+    blinds: extras.blinds ?? false,
+    breaksOnHostileAction: extras.breaksOnHostileAction ?? false,
+    immuneToStatusIds: extras.immuneToStatusIds ?? [],
+    resistanceAtLeast: extras.resistanceAtLeast ?? null,
+    armourPhysicalBonus: extras.armourPhysicalBonus ?? 0,
+    clearedOnPlayerDeath: extras.clearedOnPlayerDeath ?? true,
+  };
+}
 
 export const STATUSES: readonly StatusDefinition[] = [
-  { id: "poisoned", name: "Poisoned", durationTicks: 5, effectSummary: "apply damage_poison_1 post-action each tick" },
-  { id: "burning", name: "Burning", durationTicks: 3, effectSummary: "apply damage_fire_2 post-action each tick" },
-  { id: "chilled", name: "Chilled", durationTicks: 4, effectSummary: "SPD -2" },
-  { id: "stunned", name: "Stunned", durationTicks: 1, effectSummary: "no intentional action" },
-  { id: "slowed", name: "Slowed", durationTicks: 5, effectSummary: "SPD -2" },
-  { id: "hasted", name: "Hasted", durationTicks: 5, effectSummary: "SPD +2; no extra action" },
-  { id: "frightened", name: "Frightened", durationTicks: 4, effectSummary: "STR -1, DEX -1, CHA -2" },
-  { id: "charmed", name: "Charmed", durationTicks: 4, effectSummary: "will not intentionally target source" },
-  { id: "confused", name: "Confused", durationTicks: 3, effectSummary: "deterministic erratic AI" },
-  { id: "silenced", name: "Silenced", durationTicks: 4, effectSummary: "cannot use abilities tagged spell" },
-  { id: "anchored", name: "Anchored", durationTicks: 4, effectSummary: "cannot initiate personal dimensional-transition abilities" },
-  { id: "phased", name: "Phased", durationTicks: 3, effectSummary: "may pass through phasePassable features" },
-  { id: "hidden", name: "Hidden", durationTicks: "until_broken", effectSummary: "direct targeting prohibited unless adjacent/revealed" },
-  { id: "blinded", name: "Blinded", durationTicks: 4, effectSummary: "live visibility radius 1" },
-  { id: "regenerating", name: "Regenerating", durationTicks: 5, effectSummary: "apply heal_1 post-action each tick" },
-  { id: "stabilised", name: "Stabilised", durationTicks: 3, effectSummary: "immune to anchored" },
-  { id: "braced", name: "Braced", durationTicks: 3, effectSummary: "flat physical armour +1" },
-  { id: "ward_arcane", name: "Arcane Ward", durationTicks: 5, effectSummary: "arcane resistance at least resistant" },
-  { id: "ward_psychic", name: "Psychic Ward", durationTicks: 5, effectSummary: "psychic resistance at least resistant" },
-  { id: "ward_void", name: "Void Ward", durationTicks: 5, effectSummary: "void resistance at least resistant" },
-  { id: "ward_divine", name: "Divine Ward", durationTicks: 5, effectSummary: "divine resistance at least resistant" },
+  status("poisoned", "Poisoned", 5, "apply damage_poison_1 post-action each tick", { periodicEffectId: "damage_poison_1" }),
+  status("burning", "Burning", 3, "apply damage_fire_2 post-action each tick", { periodicEffectId: "damage_fire_2" }),
+  status("chilled", "Chilled", 4, "SPD -2", { attributeMods: { spd: -2 } }),
+  status("stunned", "Stunned", 1, "no intentional action", { preventsIntentionalActions: true }),
+  status("slowed", "Slowed", 5, "SPD -2", { attributeMods: { spd: -2 } }),
+  status("hasted", "Hasted", 5, "SPD +2; no extra action", { attributeMods: { spd: 2 }, clearedOnPlayerDeath: false }),
+  status("frightened", "Frightened", 4, "STR -1, DEX -1, CHA -2", { attributeMods: { str: -1, dex: -1, cha: -2 } }),
+  status("charmed", "Charmed", 4, "will not intentionally target source"),
+  status("confused", "Confused", 3, "deterministic erratic AI"),
+  status("silenced", "Silenced", 4, "cannot use abilities tagged spell", { preventsSpellAbilities: true }),
+  status("anchored", "Anchored", 4, "cannot initiate personal dimensional-transition abilities", {
+    preventsPersonalTransition: true,
+  }),
+  status("phased", "Phased", 3, "may pass through phasePassable features", {
+    ignoresPhaseBlockers: true,
+    clearedOnPlayerDeath: false,
+  }),
+  status("hidden", "Hidden", "until_broken", "direct targeting prohibited unless adjacent/revealed", {
+    hidden: true,
+    breaksOnHostileAction: true,
+  }),
+  status("blinded", "Blinded", 4, "live visibility radius 1", { blinds: true }),
+  status("regenerating", "Regenerating", 5, "apply heal_1 post-action each tick", {
+    periodicEffectId: "heal_1",
+    clearedOnPlayerDeath: false,
+  }),
+  status("stabilised", "Stabilised", 3, "immune to anchored", {
+    immuneToStatusIds: ["anchored"],
+    clearedOnPlayerDeath: false,
+  }),
+  status("braced", "Braced", 3, "flat physical armour +1", { armourPhysicalBonus: 1, clearedOnPlayerDeath: false }),
+  status("ward_arcane", "Arcane Ward", 5, "arcane resistance at least resistant", {
+    resistanceAtLeast: { damageType: "arcane", state: "resistant" },
+    clearedOnPlayerDeath: false,
+  }),
+  status("ward_psychic", "Psychic Ward", 5, "psychic resistance at least resistant", {
+    resistanceAtLeast: { damageType: "psychic", state: "resistant" },
+    clearedOnPlayerDeath: false,
+  }),
+  status("ward_void", "Void Ward", 5, "void resistance at least resistant", {
+    resistanceAtLeast: { damageType: "void", state: "resistant" },
+    clearedOnPlayerDeath: false,
+  }),
+  status("ward_divine", "Divine Ward", 5, "divine resistance at least resistant", {
+    resistanceAtLeast: { damageType: "divine", state: "resistant" },
+    clearedOnPlayerDeath: false,
+  }),
 ];
 
 export const ATOMIC_EFFECTS: readonly AtomicEffect[] = [
@@ -58,9 +115,9 @@ export const ATOMIC_EFFECTS: readonly AtomicEffect[] = [
   { id: "remove_poisoned", kind: "removeStatus", statusId: "poisoned" },
   { id: "remove_burning", kind: "removeStatus", statusId: "burning" },
   { id: "remove_anchored", kind: "removeStatus", statusId: "anchored" },
-  { id: "push_1", kind: "forcedMove", amount: 1 },
-  { id: "push_2", kind: "forcedMove", amount: 2 },
-  { id: "pull_1", kind: "forcedMove", amount: 1 },
+  { id: "push_1", kind: "forcedMove", amount: 1, moveMode: "push" },
+  { id: "push_2", kind: "forcedMove", amount: 2, moveMode: "push" },
+  { id: "pull_1", kind: "forcedMove", amount: 1, moveMode: "pull" },
   { id: "blink_2", kind: "teleportWithinPlane", amount: 2 },
   { id: "blink_4", kind: "teleportWithinPlane", amount: 4 },
   { id: "clear_velocity", kind: "clearVelocity" },
