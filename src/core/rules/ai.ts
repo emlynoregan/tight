@@ -14,12 +14,14 @@ import {
 } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
 import { actorIsHidden, actorPreventsIntentionalActions, grantedAbilityIds, grantedAttackIds } from "./actor-stats";
+import { applyEffectIds } from "./apply-effects";
 import { combatActionLegal } from "./combat";
 import { hasLineOfSight } from "./los";
 import { destinationCell } from "./occupancy";
-import { legalMoveDirections, nearestReachable, pathCellAllowed, shortestPathFirstStep } from "./pathfinding";
+import { legalMoveDirections, nearestReachable, shortestPathFirstAction } from "./pathfinding";
 import { landingAfterThrust, spacePhysicsActive } from "./space";
 import { orthogonalAdjacent } from "./targeting";
+import type { TickEvent } from "./tick-events";
 
 const WAIT: IntentionalAction = { type: "wait" };
 const GUARD_RADIUS = 4;
@@ -50,6 +52,7 @@ interface AiContext {
   readonly species: MonsterSpecies;
   readonly attackIds: readonly string[];
   readonly abilityIds: readonly string[];
+  readonly events: TickEvent[];
 }
 
 function aiKey(ctx: AiContext, purposeTag: string, ordinal = 0) {
@@ -210,7 +213,7 @@ function oneStepDestinations(ctx: AiContext): { direction: Direction; dest: MapC
   if (spacePhysicsActive(ctx.save.family)) {
     return DIRECTIONS.map((direction) => ({
       direction,
-      dest: landingAfterThrust(ctx.plane, ctx.save.actors, ctx.actor, direction),
+      dest: landingAfterThrust(ctx.plane, ctx.save.actors, ctx.actor, direction, ctx.save),
     })).filter((row, index, rows) => {
       const origin = { x: ctx.actor.x, y: ctx.actor.y };
       if (row.dest.x === origin.x && row.dest.y === origin.y) {
@@ -220,7 +223,7 @@ function oneStepDestinations(ctx: AiContext): { direction: Direction; dest: MapC
     });
   }
   const rows: { direction: Direction; dest: MapCoordinate }[] = [];
-  for (const direction of legalMoveDirections(ctx.plane, ctx.save.actors, ctx.actor)) {
+  for (const direction of legalMoveDirections(ctx.plane, ctx.save.actors, ctx.actor, ctx.save)) {
     const dest = destOf(ctx, direction);
     if (dest) {
       rows.push({ direction, dest });
@@ -267,8 +270,7 @@ function maximizeDistance(ctx: AiContext, preferLos = false): IntentionalAction 
 }
 
 function stepToward(ctx: AiContext, goals: readonly MapCoordinate[]): IntentionalAction {
-  const direction = shortestPathFirstStep(ctx.plane, ctx.save.actors, ctx.actor, goals);
-  return direction ? moveAction(direction) : WAIT;
+  return shortestPathFirstAction(ctx.plane, ctx.save, ctx.save.actors, ctx.actor, goals) ?? WAIT;
 }
 
 function brute(ctx: AiContext): IntentionalAction {
@@ -276,7 +278,9 @@ function brute(ctx: AiContext): IntentionalAction {
   if (legal) {
     return legal;
   }
-  const cell = nearestReachable(ctx.plane, ctx.save.actors, ctx.actor, (origin) => couldTargetPlayerFrom(ctx, origin));
+  const cell = nearestReachable(ctx.plane, ctx.save, ctx.save.actors, ctx.actor, (origin) =>
+    couldTargetPlayerFrom(ctx, origin),
+  );
   if (!cell) {
     return WAIT;
   }
@@ -306,9 +310,9 @@ function skirmisher(ctx: AiContext): IntentionalAction {
     });
     return direction ? moveAction(direction) : WAIT;
   }
-  const band = nearestReachable(ctx.plane, ctx.save.actors, ctx.actor, (cell) => {
+  const band = nearestReachable(ctx.plane, ctx.save, ctx.save.actors, ctx.actor, (cell) => {
     const next = distToPlayer(ctx, cell);
-    return next >= SKIRMISH_MIN && next <= SKIRMISH_MAX && pathCellAllowed(ctx.plane, ctx.save.actors, cell, ctx.actor);
+    return next >= SKIRMISH_MIN && next <= SKIRMISH_MAX;
   });
   return band ? stepToward(ctx, [band]) : WAIT;
 }
@@ -348,7 +352,7 @@ function sniper(ctx: AiContext): IntentionalAction {
   if (distToPlayer(ctx) < 2) {
     return maximizeDistance(ctx);
   }
-  const cell = nearestReachable(ctx.plane, ctx.save.actors, ctx.actor, (origin) =>
+  const cell = nearestReachable(ctx.plane, ctx.save, ctx.save.actors, ctx.actor, (origin) =>
     couldTargetPlayerFrom(ctx, origin, isRangedAction),
   );
   return cell ? stepToward(ctx, [cell]) : WAIT;
@@ -406,7 +410,7 @@ function wanderIdle(ctx: AiContext): IntentionalAction {
   if (roll < 50) {
     return WAIT;
   }
-  const legal = legalMoveDirections(ctx.plane, ctx.save.actors, ctx.actor);
+  const legal = legalMoveDirections(ctx.plane, ctx.save.actors, ctx.actor, ctx.save);
   if (legal.length === 0) {
     return WAIT;
   }
@@ -460,21 +464,40 @@ function ambusher(ctx: AiContext, postProfile: string): IntentionalAction {
   return selectProfile(ctx, postProfile);
 }
 
-function advanceBossPhase(actor: ActorState, phases: readonly BossPhase[]): BossPhase {
+export function progressBossPhases(
+  save: SaveState,
+  plane: PlaneBase,
+  actor: ActorState,
+  phases: readonly BossPhase[],
+  events: TickEvent[],
+): BossPhase {
   while (actor.aiPhaseIndex < phases.length - 1) {
     const next = phases[actor.aiPhaseIndex + 1]!;
-    if (next.hpAtMostPercent === null) {
-      actor.aiPhaseIndex += 1;
-      continue;
+    if (next.hpAtMostPercent !== null) {
+      const percent = actor.maxHp <= 0 ? 0 : (actor.hp * 100) / actor.maxHp;
+      if (percent > next.hpAtMostPercent) {
+        break;
+      }
     }
-    const percent = actor.maxHp <= 0 ? 0 : (actor.hp * 100) / actor.maxHp;
-    if (percent <= next.hpAtMostPercent) {
-      actor.aiPhaseIndex += 1;
-      continue;
+    actor.aiPhaseIndex += 1;
+    if (next.entryEffectOrBundleId) {
+      applyEffectIds(save, plane, [next.entryEffectOrBundleId], actor, actor, events);
     }
-    break;
   }
   return phases[actor.aiPhaseIndex] ?? phases[0]!;
+}
+
+function confusedAction(ctx: AiContext): IntentionalAction {
+  const options: IntentionalAction[] = [WAIT];
+  for (const direction of legalMoveDirections(ctx.plane, ctx.save.actors, ctx.actor, ctx.save)) {
+    options.push(moveAction(direction));
+  }
+  for (const action of canonicalActions(ctx)) {
+    if (combatActionLegal(ctx.save, ctx.plane, ctx.actor, action)) {
+      options.push(action);
+    }
+  }
+  return options[boundedUnit(aiKey(ctx, "confused"), options.length)]!;
 }
 
 function selectProfile(ctx: AiContext, profile: string): IntentionalAction {
@@ -506,7 +529,7 @@ function selectProfile(ctx: AiContext, profile: string): IntentionalAction {
       if (!boss || boss.phases.length === 0) {
         return brute(ctx);
       }
-      const phase = advanceBossPhase(ctx.actor, boss.phases);
+      const phase = progressBossPhases(ctx.save, ctx.plane, ctx.actor, boss.phases, ctx.events);
       const phased: AiContext = { ...ctx, attackIds: phase.attackIds, abilityIds: [] };
       return selectProfile(phased, phase.ai);
     }
@@ -557,7 +580,7 @@ function toSpaceAction(save: SaveState, action: IntentionalAction): IntentionalA
   return { type: "thrust", direction: action.direction };
 }
 
-export function selectMonsterAction(runtime: GameRuntime, actor: ActorState): IntentionalAction {
+export function selectMonsterAction(runtime: GameRuntime, actor: ActorState, events: TickEvent[] = []): IntentionalAction {
   if (actor.kind === "npc" || actor.kind === "player") {
     return WAIT;
   }
@@ -575,10 +598,20 @@ export function selectMonsterAction(runtime: GameRuntime, actor: ActorState): In
     species,
     attackIds: grantedAttackIds(runtime.save, actor),
     abilityIds: grantedAbilityIds(runtime.save, actor),
+    events,
   };
+  if (species.aiProfile === "boss_scripted") {
+    const boss = CONTENT_REGISTRY.bosses.find((row) => row.speciesId === species.id);
+    if (boss && boss.phases.length > 0) {
+      progressBossPhases(ctx.save, ctx.plane, ctx.actor, boss.phases, ctx.events);
+    }
+  }
   transitionState(ctx);
   if (ctx.actor.aiState === "disabled") {
     return WAIT;
+  }
+  if (ctx.actor.statuses.some((row) => row.id === "confused")) {
+    return toSpaceAction(runtime.save, confusedAction(ctx));
   }
   const profile = species.aiProfile;
   if (ctx.actor.aiState === "idle" && profile !== "wanderer" && profile !== "guardian" && profile !== "ambusher") {

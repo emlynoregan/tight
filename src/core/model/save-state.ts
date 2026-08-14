@@ -108,6 +108,13 @@ export interface PlayerState {
   safeAnchor: { plane: PlanePair; x: number; y: number };
 }
 
+export interface FeatureInstanceState {
+  plane: PlanePair;
+  x: number;
+  y: number;
+  state: string;
+}
+
 export interface SaveState {
   generatorVersion: GeneratorVersionId;
   worldSeed: string;
@@ -124,4 +131,5 @@ export interface SaveState {
   player: PlayerState;
   actors: ActorState[];
   flags: string[];
+  featureStates: FeatureInstanceState[];
 }

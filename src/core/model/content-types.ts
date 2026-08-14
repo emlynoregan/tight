@@ -312,6 +312,7 @@ export interface BossPhase {
   readonly hpAtMostPercent: number | null;
   readonly ai: CatalogueId;
   readonly attackIds: readonly CatalogueId[];
+  readonly entryEffectOrBundleId?: CatalogueId | null;
 }
 
 export interface BossDefinition {

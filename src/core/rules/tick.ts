@@ -27,6 +27,7 @@ export function advanceTick(runtime: GameRuntime): TickResult {
     syncDerivedMaxHp(save, actor);
   }
 
+  const events: TickEvent[] = [];
   const playerAction = capturePlayerAction(save);
   const intended = new Map<string, IntentionalAction>();
   intended.set("player", playerAction);
@@ -34,10 +35,8 @@ export function advanceTick(runtime: GameRuntime): TickResult {
     if (actor.id === "player") {
       continue;
     }
-    intended.set(actor.id, runtime.scriptedActions.get(actor.id) ?? selectMonsterAction(runtime, actor));
+    intended.set(actor.id, runtime.scriptedActions.get(actor.id) ?? selectMonsterAction(runtime, actor, events));
   }
-
-  const events: TickEvent[] = [];
   const order = initiativeOrder(save.actors, save.worldSeed, save.tick, (actor) => {
     return effectiveAttributes(save, actor).spd + effectiveInitiativeModifier(save, actor);
   });

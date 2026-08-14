@@ -4,7 +4,7 @@ import type { MapCoordinate } from "../model/plane";
 import type { ActorState, IntentionalAction, SaveState } from "../model/save-state";
 import { DIRECTION_DELTA } from "../model/save-state";
 import { prepareAction, resolveAbilityAction, resolveAttackAction, resolveItemAction } from "./combat";
-import { canOccupy, destinationCell, featureAt, featureIsInteractive } from "./occupancy";
+import { canOccupy, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, setFeatureRuntimeState } from "./occupancy";
 import { applyThrust } from "./space";
 import type { TickEvent } from "./tick-events";
 
@@ -40,7 +40,7 @@ export function resolveAction(
       return [{ type: "action_failed", actorId: actor.id, detail: "missing direction" }];
     }
     const dest = destinationCell(actor, DIRECTION_DELTA[resolved.direction], plane.wraps);
-    if (!dest || !canOccupy(plane, save.actors, dest, actor.id)) {
+    if (!dest || !canOccupy(plane, save.actors, dest, actor.id, save)) {
       return [{ type: "action_failed", actorId: actor.id, detail: "blocked" }];
     }
     actor.x = dest.x;
@@ -48,7 +48,7 @@ export function resolveAction(
     return [{ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y }];
   }
   if (resolved.type === "interact") {
-    return resolveInteract(save, plane, actor, resolved.targetId);
+    return resolveInteract(save, plane, actor, resolved);
   }
   if (resolved.type === "attack") {
     return resolveAttackAction(save, plane, actor, resolved, save.family);
@@ -62,7 +62,7 @@ export function resolveAction(
   return [{ type: "action_failed", actorId: actor.id, detail: "unknown action" }];
 }
 
-function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, targetId: string | undefined): TickEvent[] {
+function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, action: IntentionalAction): TickEvent[] {
   const origin = { x: actor.x, y: actor.y };
   const neighbours = adjacentCells(origin, plane.wraps);
   const featureTargets = neighbours
@@ -72,10 +72,19 @@ function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, t
     .map((cell) => save.actors.find((row) => row.x === cell.x && row.y === cell.y && row.id !== actor.id))
     .filter((row): row is ActorState => row !== undefined && (row.kind === "npc" || row.kind === "guardian"));
 
+  const targetId = action.targetId;
   let chosenFeature = featureTargets[0];
   let chosenActor = actorTargets[0];
   if (targetId) {
-    chosenFeature = featureTargets.find((row) => row.featureId === targetId);
+    chosenFeature = featureTargets.find((row) => {
+      if (row.featureId !== targetId) {
+        return false;
+      }
+      if (action.targetX === undefined || action.targetY === undefined) {
+        return true;
+      }
+      return row.cell.x === action.targetX && row.cell.y === action.targetY;
+    });
     chosenActor = actorTargets.find((row) => row.id === targetId);
   }
   if (chosenActor) {
@@ -89,6 +98,15 @@ function resolveInteract(save: SaveState, plane: PlaneBase, actor: ActorState, t
     save.player.safeAnchor = { plane: save.plane, x: chosenFeature.cell.x, y: chosenFeature.cell.y };
     actor.hp = actor.maxHp;
     return [{ type: "interacted", actorId: actor.id, targetId: "safe_anchor", x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+  }
+  if (chosenFeature?.featureId === "door") {
+    const current = doorRuntimeState(save, plane, chosenFeature.cell);
+    if (current === "locked") {
+      return [{ type: "action_failed", actorId: actor.id, detail: "door locked" }];
+    }
+    const next = current === "open" ? "closed" : "open";
+    setFeatureRuntimeState(save, plane.plane, chosenFeature.cell, next);
+    return [{ type: "door_toggled", actorId: actor.id, targetId: "door", detail: next, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
   }
   if (chosenFeature) {
     return [{ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];

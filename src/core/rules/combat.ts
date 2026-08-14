@@ -295,7 +295,7 @@ export function resolveAttackOnTargets(
 }
 
 function maybeConfuseMove(save: SaveState, actor: ActorState, action: IntentionalAction): IntentionalAction {
-  if (action.type !== "move" || !action.direction || !actor.statuses.some((row) => row.id === "confused")) {
+  if (action.type !== "move" || !action.direction || actor.kind !== "player" || !actor.statuses.some((row) => row.id === "confused")) {
     return action;
   }
   const turns = percentile([

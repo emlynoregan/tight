@@ -116,7 +116,7 @@ export function forcedMove(
       return;
     }
     const dest = destinationCell(mover, delta, plane.wraps);
-    if (!dest || !canOccupy(plane, save.actors, dest, mover.id)) {
+    if (!dest || !canOccupy(plane, save.actors, dest, mover.id, save)) {
       events.push({ type: "forced_move_blocked", actorId: mover.id, x: mover.x, y: mover.y });
       return;
     }

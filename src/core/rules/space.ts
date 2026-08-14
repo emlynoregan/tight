@@ -45,6 +45,7 @@ export function simulateVelocityMovement(
   mover: ActorState,
   vx: number,
   vy: number,
+  save?: SaveState,
 ): VelocityStepResult {
   let x = mover.x;
   let y = mover.y;
@@ -54,7 +55,7 @@ export function simulateVelocityMovement(
     if (remainingX !== 0) {
       const step = remainingX > 0 ? 1 : -1;
       const dest = destinationCell({ x, y }, { x: step, y: 0 }, plane.wraps);
-      if (!dest || !canOccupy(plane, actors, dest, mover.id)) {
+      if (!dest || !canOccupy(plane, actors, dest, mover.id, save)) {
         return { x, y, vx: 0, vy: 0, blocked: true };
       }
       x = dest.x;
@@ -64,7 +65,7 @@ export function simulateVelocityMovement(
     if (remainingY !== 0) {
       const step = remainingY > 0 ? 1 : -1;
       const dest = destinationCell({ x, y }, { x: 0, y: step }, plane.wraps);
-      if (!dest || !canOccupy(plane, actors, dest, mover.id)) {
+      if (!dest || !canOccupy(plane, actors, dest, mover.id, save)) {
         return { x, y, vx: 0, vy: 0, blocked: true };
       }
       x = dest.x;
@@ -80,9 +81,10 @@ export function landingAfterThrust(
   actors: readonly ActorState[],
   mover: ActorState,
   direction: Direction,
+  save?: SaveState,
 ): MapCoordinate {
   const next = thrustVelocity(mover.vx, mover.vy, direction);
-  const landed = simulateVelocityMovement(plane, actors, mover, next.vx, next.vy);
+  const landed = simulateVelocityMovement(plane, actors, mover, next.vx, next.vy, save);
   return { x: landed.x, y: landed.y };
 }
 
@@ -100,7 +102,7 @@ export function applyEnvironmentalMovement(
     if (!actor || (actor.vx === 0 && actor.vy === 0)) {
       continue;
     }
-    const landed = simulateVelocityMovement(plane, save.actors, actor, actor.vx, actor.vy);
+    const landed = simulateVelocityMovement(plane, save.actors, actor, actor.vx, actor.vy, save);
     if (landed.x !== actor.x || landed.y !== actor.y) {
       actor.x = landed.x;
       actor.y = landed.y;

@@ -9,8 +9,10 @@ import {
   detectsPlayer,
   hashSaveState,
   playerActor,
+  progressBossPhases,
+  selectMonsterAction,
+  shortestPathFirstAction,
   shortestPathFirstStep,
-  type ActorState,
 } from "../../src/core";
 import { emptyGrid } from "../../src/core/generation/grid";
 import type { PlaneBase } from "../../src/core/generation/plane-types";
@@ -67,36 +69,80 @@ function tickWait(runtime: ReturnType<typeof newGame>) {
   return advanceTick(runtime);
 }
 
+function pathStep(setup: ReturnType<typeof isolate>, goals: { x: number; y: number }[]) {
+  return shortestPathFirstStep(
+    setup.runtime.currentPlaneBase,
+    setup.runtime.save,
+    [setup.monster],
+    setup.monster,
+    goals,
+  );
+}
+
+function pathAction(setup: ReturnType<typeof isolate>, goals: { x: number; y: number }[]) {
+  return shortestPathFirstAction(
+    setup.runtime.currentPlaneBase,
+    setup.runtime.save,
+    [setup.monster],
+    setup.monster,
+    goals,
+  );
+}
+
 describe("pathfinding ties", () => {
   it("breaks equal-length paths with up, right, down, left neighbour order", () => {
-    const plane = openPlane();
-    const mover: ActorState = isolate("wolf", { x: 0, y: 0 }, { x: 5, y: 5 }).monster;
-    const step = shortestPathFirstStep(plane, [mover], mover, [{ x: 6, y: 4 }]);
-    expect(step).toBe("north");
+    const setup = isolate("wolf", { x: 0, y: 0 }, { x: 5, y: 5 });
+    expect(pathStep(setup, [{ x: 6, y: 4 }])).toBe("north");
   });
 
   it("prefers the lower (y,x) goal among equal-cost engagement cells", () => {
-    const plane = openPlane();
-    const mover = isolate("wolf", { x: 0, y: 0 }, { x: 5, y: 5 }).monster;
-    const step = shortestPathFirstStep(plane, [mover], mover, [
-      { x: 7, y: 8 },
-      { x: 8, y: 7 },
-    ]);
-    expect(step).toBe("east");
+    const setup = isolate("wolf", { x: 0, y: 0 }, { x: 5, y: 5 });
+    expect(
+      pathStep(setup, [
+        { x: 7, y: 8 },
+        { x: 8, y: 7 },
+      ]),
+    ).toBe("east");
   });
 
   it("wraps neighbours before legality on wrapping planes", () => {
     const plane = openPlane("space", true);
-    const mover = isolate("vacuum_crawler", { x: 8, y: 8 }, { x: 0, y: 8 }, plane).monster;
-    expect(shortestPathFirstStep(plane, [mover], mover, [{ x: 15, y: 8 }])).toBe("west");
+    const setup = isolate("vacuum_crawler", { x: 8, y: 8 }, { x: 0, y: 8 }, plane);
+    expect(pathStep(setup, [{ x: 15, y: 8 }])).toBe("west");
   });
 
-  it("treats doors as blocked for non-door users and walkable for door users", () => {
+  it("uses a cheaper open corridor instead of a geometrically shorter closed door", () => {
     const plane = withFeature(openPlane(), 6, 5, "door");
-    const wolf = isolate("wolf", { x: 8, y: 8 }, { x: 5, y: 5 }, plane).monster;
-    const bandit = isolate("bandit", { x: 8, y: 8 }, { x: 5, y: 5 }, plane).monster;
-    expect(shortestPathFirstStep(plane, [wolf], wolf, [{ x: 7, y: 5 }])).toBe("north");
-    expect(shortestPathFirstStep(plane, [bandit], bandit, [{ x: 7, y: 5 }])).toBe("east");
+    const setup = isolate("bandit", { x: 0, y: 0 }, { x: 5, y: 5 }, plane);
+    expect(pathAction(setup, [{ x: 6, y: 6 }])).toEqual({ type: "move", direction: "south" });
+  });
+
+  it("opens a closed door before traversing it, then walks through on a later tick", () => {
+    let plane = withFeature(openPlane(), 6, 5, "door");
+    plane = withFeature(plane, 6, 4, "tree");
+    plane = withFeature(plane, 6, 6, "tree");
+    const setup = isolate("bandit", { x: 7, y: 5 }, { x: 5, y: 5 }, plane);
+    setup.runtime.save.tick = 1;
+    setup.monster.lastAffectedTick = 0;
+    setup.monster.aiState = "chasing";
+    const first = tickWait(setup.runtime);
+    expect(first.events.some((event) => event.type === "door_toggled" && event.detail === "open" && event.actorId === "m.1")).toBe(
+      true,
+    );
+    expect(setup.monster.x).toBe(5);
+    expect(setup.monster.y).toBe(5);
+    setup.monster.lastAffectedTick = setup.runtime.save.tick - 1;
+    setup.monster.aiState = "chasing";
+    tickWait(setup.runtime);
+    expect(setup.monster.x).toBe(6);
+    expect(setup.monster.y).toBe(5);
+  });
+
+  it("treats a closed door as blocked for non-door-users", () => {
+    const plane = withFeature(openPlane(), 6, 5, "door");
+    const wolf = isolate("wolf", { x: 8, y: 8 }, { x: 5, y: 5 }, plane);
+    expect(pathAction(wolf, [{ x: 7, y: 5 }])?.type).not.toBe("interact");
+    expect(pathStep(wolf, [{ x: 7, y: 5 }])).toBe("north");
   });
 });
 
@@ -230,5 +276,81 @@ describe("Space thrust and hash stability", () => {
     tickWait(setup.runtime);
     expect(setup.monster.x).toBe(8);
     expect(setup.monster.y).toBe(5);
+  });
+});
+
+describe("boss phases and confused AI", () => {
+  it("applies skipped phase-entry effects once in ascending order before using the highest phase", () => {
+    const setup = isolate("golem_warden", { x: 8, y: 8 }, { x: 8, y: 7 });
+    setup.monster.maxHp = 100;
+    setup.monster.hp = 30;
+    const events: { type: string; detail?: string }[] = [];
+    const phase = progressBossPhases(
+      setup.runtime.save,
+      setup.runtime.currentPlaneBase,
+      setup.monster,
+      [
+        { name: "p1", hpAtMostPercent: null, ai: "brute", attackIds: ["hammer_blow"] },
+        { name: "p2", hpAtMostPercent: 70, ai: "brute", attackIds: ["hammer_blow"], entryEffectOrBundleId: "apply_hasted" },
+        { name: "p3", hpAtMostPercent: 35, ai: "skirmisher", attackIds: ["body_slam"], entryEffectOrBundleId: "apply_confused" },
+      ],
+      events,
+    );
+    expect(phase.name).toBe("p3");
+    expect(setup.monster.aiPhaseIndex).toBe(2);
+    expect(setup.monster.statuses.map((row) => row.id).sort()).toEqual(["confused", "hasted"]);
+    progressBossPhases(
+      setup.runtime.save,
+      setup.runtime.currentPlaneBase,
+      setup.monster,
+      [
+        { name: "p1", hpAtMostPercent: null, ai: "brute", attackIds: ["hammer_blow"] },
+        { name: "p2", hpAtMostPercent: 70, ai: "brute", attackIds: ["hammer_blow"], entryEffectOrBundleId: "apply_hasted" },
+        { name: "p3", hpAtMostPercent: 35, ai: "skirmisher", attackIds: ["body_slam"], entryEffectOrBundleId: "apply_confused" },
+      ],
+      events,
+    );
+    expect(setup.monster.statuses.filter((row) => row.id === "hasted")).toHaveLength(1);
+    expect(setup.monster.statuses.filter((row) => row.id === "confused")).toHaveLength(1);
+  });
+
+  it("lets a phase-entry stun determine the action selected that tick", () => {
+    const setup = isolate("golem_warden", { x: 8, y: 8 }, { x: 8, y: 7 });
+    setup.monster.maxHp = 100;
+    setup.monster.hp = 40;
+    setup.monster.aiState = "chasing";
+    const events: { type: string; detail?: string }[] = [];
+    progressBossPhases(
+      setup.runtime.save,
+      setup.runtime.currentPlaneBase,
+      setup.monster,
+      [
+        { name: "p1", hpAtMostPercent: null, ai: "brute", attackIds: ["hammer_blow"] },
+        { name: "p2", hpAtMostPercent: 50, ai: "brute", attackIds: ["hammer_blow"], entryEffectOrBundleId: "apply_stunned" },
+      ],
+      events,
+    );
+    const action = selectMonsterAction(setup.runtime, setup.monster, events);
+    expect(setup.monster.statuses.some((row) => row.id === "stunned")).toBe(true);
+    expect(action).toEqual({ type: "wait" });
+  });
+
+  it("selects confused actions from the legal wait/move/attack set with runtime.ai keys", () => {
+    const setup = isolate("wolf", { x: 8, y: 8 }, { x: 8, y: 7 });
+    applyStatus(setup.monster, "confused", null, []);
+    setup.monster.aiState = "chasing";
+    const first = selectMonsterAction(setup.runtime, setup.monster);
+    const again = selectMonsterAction(setup.runtime, setup.monster);
+    expect(again).toEqual(first);
+    expect(["wait", "move", "attack"]).toContain(first.type);
+    if (first.type === "attack") {
+      expect(first.attackId).toBe("bite");
+    }
+    if (first.type === "move") {
+      expect(["north", "east", "south", "west"]).toContain(first.direction);
+    }
+    setup.runtime.save.tick += 1;
+    const later = selectMonsterAction(setup.runtime, setup.monster);
+    expect(["wait", "move", "attack"]).toContain(later.type);
   });
 });

@@ -167,6 +167,7 @@ export function createRuntimeFromAccepted(
     },
     actors: materializeActors(world.topology, planeBase, playerActor),
     flags: [],
+    featureStates: [],
   };
   return {
     identity: { generatorVersion: world.topology.generatorVersion, worldSeed: world.topology.worldSeed },

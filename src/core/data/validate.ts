@@ -397,6 +397,24 @@ export function validateContentRegistry(
   requireRef(issues, "victory.bossId", registry.victory.bossId, registry.byId.monster.has(registry.victory.bossId));
   requireRef(issues, "victory.encounterId", registry.victory.encounterId, registry.victory.encounterId === registry.bossEncounter.id);
 
+  for (const boss of registry.bosses) {
+    requireRef(issues, `bosses.${boss.id}.speciesId`, boss.speciesId, registry.byId.monster.has(boss.speciesId));
+    for (const [index, phase] of boss.phases.entries()) {
+      const path = `bosses.${boss.id}.phases.${index}`;
+      if (phase.entryEffectOrBundleId) {
+        requireRef(
+          issues,
+          `${path}.entryEffectOrBundleId`,
+          phase.entryEffectOrBundleId,
+          registry.byId.effect.has(phase.entryEffectOrBundleId) || registry.byId.bundle.has(phase.entryEffectOrBundleId),
+        );
+      }
+      for (const attackId of phase.attackIds) {
+        requireRef(issues, `${path}.attackIds`, attackId, registry.byId.attack.has(attackId));
+      }
+    }
+  }
+
   return issues;
 }
 
