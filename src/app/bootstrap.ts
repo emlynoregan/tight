@@ -4,7 +4,9 @@ import { SimulationClock } from "./clock";
 import { KeyboardAdapter } from "../input/keyboard";
 import { mountShell } from "../ui/shell";
 import { renderHud } from "../ui/hud";
+import { bindModalCommands, renderManagementModal } from "../ui/modals";
 import { createWorldRenderer } from "../renderer/world-renderer";
+import { createPersistence } from "../persistence";
 
 const host = document.getElementById("app");
 if (!host) {
@@ -13,13 +15,24 @@ if (!host) {
 
 const params = new URLSearchParams(window.location.search);
 const seed = params.get("seed") ?? "0";
+const forceNew = params.get("new") === "1";
 const shell = mountShell(host);
-const controller = new GameController({ seed });
+const persistence = await createPersistence();
+let controller: GameController;
+try {
+  controller = await GameController.open({ seed, persistence, forceNew });
+} catch (error) {
+  host.textContent = error instanceof Error ? error.message : "Save could not be loaded.";
+  throw error;
+}
 const clock = new SimulationClock();
 const world = await createWorldRenderer(shell.worldHost, controller.presentation);
 
 new KeyboardAdapter(window, (intent) => {
   controller.handleIntent(intent);
+});
+bindModalCommands(shell, (command) => {
+  controller.command(command);
 });
 
 async function armAudio(): Promise<void> {
@@ -45,6 +58,9 @@ document.addEventListener("visibilitychange", () => {
 });
 
 clock.start(performance.now());
+window.addEventListener("pagehide", () => {
+  void controller.persist();
+});
 
 function frame(now: number): void {
   if (clock.step(now).shouldSimulate) {
@@ -54,6 +70,7 @@ function frame(now: number): void {
   world.sync(snapshot.plane, now);
   world.app.render();
   renderHud(shell, snapshot.hud, controller.presentation);
+  renderManagementModal(shell, snapshot.hud.modal, snapshot.inventory, snapshot.character);
   requestAnimationFrame(frame);
 }
 

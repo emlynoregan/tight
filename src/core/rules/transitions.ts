@@ -108,7 +108,9 @@ function gateOf(runtime: GameRuntime, transition: TopologyTransition): TopologyG
 }
 
 function inventoryCount(save: SaveState, itemId: string): number {
-  return save.player.inventory.filter((row) => row.itemId === itemId).reduce((sum, row) => sum + row.quantity, 0);
+  const pack = save.player.inventory.filter((row) => row.itemId === itemId).reduce((sum, row) => sum + row.quantity, 0);
+  const keys = save.player.keyItems.filter((row) => row.itemId === itemId).reduce((sum, row) => sum + row.quantity, 0);
+  return pack + keys;
 }
 
 function conditionsMet(runtime: GameRuntime, actor: ActorState, transition: TopologyTransition, personal: boolean): boolean {

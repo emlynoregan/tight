@@ -5,6 +5,7 @@ import { DIRECTION_DELTA } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
 import { prepareAction, resolveAbilityAction, resolveAttackAction, resolveItemAction } from "./combat";
 import { actorsOnPlane, canOccupy, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, setFeatureRuntimeState } from "./occupancy";
+import { dropInventoryItem, pickupGroundItem } from "./inventory";
 import { applyThrust } from "./space";
 import { maybeStepOnTransition, tryActivateWorldTransition, tryEdgeCross } from "./transitions";
 import type { TickEvent } from "./tick-events";
@@ -65,6 +66,15 @@ export function resolveAction(runtime: GameRuntime, actor: ActorState, action: I
   }
   if (resolved.type === "item") {
     return resolveItemAction(save, plane, actor, resolved);
+  }
+  if (resolved.type === "pickup") {
+    return pickupGroundItem(runtime, resolved.targetId);
+  }
+  if (resolved.type === "drop") {
+    if (!resolved.itemId) {
+      return [{ type: "action_failed", actorId: actor.id, detail: "missing item" }];
+    }
+    return dropInventoryItem(runtime, resolved.itemId);
   }
   return [{ type: "action_failed", actorId: actor.id, detail: "unknown action" }];
 }
@@ -129,6 +139,12 @@ function resolveInteract(runtime: GameRuntime, actor: ActorState, action: Intent
   }
   if (chosenFeature) {
     return [{ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+  }
+  if (actor.kind === "player") {
+    const pickup = pickupGroundItem(runtime, targetId);
+    if (!pickup.some((event) => event.type === "action_failed")) {
+      return pickup;
+    }
   }
   return [{ type: "action_failed", actorId: actor.id, detail: "no interactable" }];
 }

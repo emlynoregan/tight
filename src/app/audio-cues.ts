@@ -27,6 +27,8 @@ function cueFor(event: TickEvent): string | null {
       return "sfx.pursuit.arrival";
     case "item_used":
       return "sfx.item.use";
+    case "item_picked_up":
+      return "sfx.item.pickup";
     case "healed":
       return event.actorId === "player" ? "sfx.item.heal" : null;
     case "status_applied":

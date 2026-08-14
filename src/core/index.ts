@@ -70,6 +70,8 @@ export type {
 export type { SolverResult, SolverFailure, SolverSearchOptions, WitnessStep } from "./generation/solver-types";
 export { createNewGame, hashSaveState, playerActor, createMonsterActor, maxHpForCon } from "./runtime/game-runtime";
 export type { GameRuntime, CreateNewGameOptions } from "./runtime/game-runtime";
+export { createRuntimeFromSave, createRuntimeFromSaveRecord } from "./runtime/load-game";
+export type { LoadGameResult } from "./runtime/load-game";
 export { materializeRuntimePlane } from "./runtime/materialize-plane";
 export type { RuntimePlaneResult } from "./runtime/materialize-plane";
 export { applyPlayerCommand } from "./rules/commands";
@@ -82,11 +84,17 @@ export { getHudView, formatTickEvent } from "./queries/hud-view";
 export type { HudView, GemView, StatusView, GemState } from "./queries/hud-view";
 export { getAvailableActions } from "./queries/available-actions";
 export type { AvailableActions } from "./queries/available-actions";
+export { getInventoryView, getCharacterView } from "./queries/inventory-view";
+export type { InventoryView, CharacterView, InventorySlotView } from "./queries/inventory-view";
 export { cellIsVisible, visibilityProfileFor } from "./queries/visibility";
+export { tryAddItem, pickupGroundItem, dropInventoryItem, equipItem, unequipSlot, ordinarySlotCount, itemQuantity } from "./rules/inventory";
+export { spendAdvancementPoint, playerAtSafeAnchor } from "./rules/advancement";
+export { SAVE_FORMAT_VERSION, makeSaveRecord, validateSaveRecord, parseSaveJson, cloneSaveState } from "./save-record";
+export type { SaveRecord, SaveValidationResult } from "./save-record";
 export { selectMonsterAction, detectsPlayer, progressBossPhases } from "./rules/ai";
 export { shortestPathFirstStep, shortestPathFirstAction, nearestReachable, movementCostTo } from "./rules/pathfinding";
 export { defaultAiFields } from "./model/save-state";
-export type { SaveState, IntentionalAction, Direction, ActorState, PursuitHandoff } from "./model/save-state";
+export type { SaveState, IntentionalAction, Direction, ActorState, PursuitHandoff, GroundItemState } from "./model/save-state";
 export {
   activateTransition,
   arrivalCellFor,

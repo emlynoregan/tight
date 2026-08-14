@@ -76,6 +76,10 @@ export function formatTickEvent(event: TickEvent): string | null {
       return null;
     case "status_applied":
       return `${event.actorId ?? "actor"}: ${event.detail ?? "status"}`;
+    case "item_picked_up":
+      return `Picked up ${event.detail ?? "item"}`;
+    case "item_dropped":
+      return `Dropped ${event.detail ?? "item"}`;
     case "item_used":
       return `Used ${event.detail ?? "item"}`;
     case "paused":
@@ -126,6 +130,7 @@ export function getHudView(runtime: GameRuntime, messages: readonly string[] = [
     "Space/. wait",
     canInteract ? "E interact" : "E interact (nothing adjacent)",
     canAttack ? `F attack (${attackId})` : "F attack (need adjacent foe)",
+    "G pick up  I inventory  C character",
     save.modal ? "Esc close modal" : null,
   ].filter((row): row is string => row !== null);
   return {

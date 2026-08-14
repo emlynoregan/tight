@@ -3,6 +3,7 @@ import type { ActorKind } from "../model/save-state";
 import type { FamilyId } from "../model/ids";
 import type { PlanePair } from "../model/plane";
 import { actorsOnPlane, doorRuntimeState, featureAt } from "../rules/occupancy";
+import { groundItemsOnPlane } from "../rules/inventory";
 import { orthogonalAdjacent } from "../rules/targeting";
 import { playerActor, type GameRuntime } from "../runtime/game-runtime";
 import type { TickEvent } from "../rules/tick-events";
@@ -131,7 +132,9 @@ export function getVisiblePlaneView(runtime: GameRuntime, events: readonly TickE
       maxHp: actor.maxHp,
       visible: cellIsVisible(runtime, actor),
     })),
-    items: [],
+    items: groundItemsOnPlane(save, plane.plane)
+      .filter((item) => cellIsVisible(runtime, item))
+      .map((item) => ({ id: item.id, itemId: item.itemId, x: item.x, y: item.y })),
     targeting,
     effects: events.flatMap((event, index) => {
       const fx = effectFromEvent(runtime, event, index);

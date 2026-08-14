@@ -24,7 +24,7 @@ export type EquipmentLoadout = {
 };
 
 export interface IntentionalAction {
-  readonly type: "move" | "wait" | "interact" | "attack" | "ability" | "item" | "thrust";
+  readonly type: "move" | "wait" | "interact" | "attack" | "ability" | "item" | "thrust" | "pickup" | "drop";
   readonly direction?: Direction;
   readonly targetId?: string;
   readonly attackId?: CatalogueId;
@@ -104,8 +104,18 @@ export interface PlayerState {
   currency: number;
   equipment: EquipmentLoadout;
   inventory: ItemStack[];
+  keyItems: ItemStack[];
   learnedAbilities: CatalogueId[];
   safeAnchor: { plane: PlanePair; x: number; y: number };
+}
+
+export interface GroundItemState {
+  id: string;
+  itemId: CatalogueId;
+  quantity: number;
+  plane: PlanePair;
+  x: number;
+  y: number;
 }
 
 export interface FeatureInstanceState {
@@ -165,6 +175,7 @@ export interface SaveState {
   actors: ActorState[];
   flags: string[];
   featureStates: FeatureInstanceState[];
+  groundItems: GroundItemState[];
   pursuits: PursuitHandoff[];
   consumedTransitionIds: string[];
   lastTransition: LastTransition | null;

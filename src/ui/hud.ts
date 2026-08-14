@@ -41,11 +41,4 @@ export function renderHud(shell: ShellElements, hud: HudView, facade: Presentati
       return row;
     }),
   );
-  if (hud.modal) {
-    shell.modal.hidden = false;
-    shell.modal.textContent = `Paused: ${hud.modal}. Esc to close.`;
-  } else {
-    shell.modal.hidden = true;
-    shell.modal.textContent = "";
-  }
 }

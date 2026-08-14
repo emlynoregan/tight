@@ -108,6 +108,20 @@
   border: 1px solid #a44;
 }
 
+.tight-modal h2,
+.tight-modal h3 {
+  margin: 0.4rem 0;
+}
+
+.tight-modal ul {
+  margin: 0.3rem 0 0.6rem;
+  padding-left: 1.1rem;
+}
+
+.tight-modal button {
+  margin: 0 0.25rem 0.25rem 0;
+}
+
 @media (max-width: 820px) {
   .tight-main {
     grid-template-columns: 1fr;
