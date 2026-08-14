@@ -72,6 +72,10 @@ export class ProceduralAudioProvider implements AudioProvider {
     return this.engine.ensureContext();
   }
 
+  resume(): Promise<void> {
+    return this.engine.resume();
+  }
+
   playCue(request: AudioCueRequest): AudioCueHandle {
     const handle = this.resolveCue(request);
     if (!handle.silent && handle.patch) {

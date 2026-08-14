@@ -56,6 +56,8 @@ export class AssetAudioProvider implements AudioProvider {
     return false;
   }
 
+  async resume(): Promise<void> {}
+
   playCue(request: AudioCueRequest): AudioCueHandle {
     return this.resolveCue(request);
   }

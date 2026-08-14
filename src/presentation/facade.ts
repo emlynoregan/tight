@@ -37,6 +37,10 @@ export class PresentationFacade {
     this.audio.setPreferences(prefs);
   }
 
+  resume(): Promise<void> {
+    return this.audio.resume();
+  }
+
   dimensionProfile(dimension: number): DimensionVisualProfile {
     return this.visual.dimensionProfile(dimension);
   }

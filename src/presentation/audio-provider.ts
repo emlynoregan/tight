@@ -30,6 +30,8 @@ export interface AudioProvider {
   getPreferences(): AudioPreferences;
   setPreferences(prefs: Partial<AudioPreferences>): void;
   ensureContext(): boolean;
+  /** User-gesture activation. Creates a context if needed and resumes a suspended one. */
+  resume(): Promise<void>;
   playCue(request: AudioCueRequest): AudioCueHandle;
   startMusic(request: MusicRequest): MusicHandle;
   stopMusic(): void;
@@ -72,6 +74,8 @@ export class SilentAudioProvider implements AudioProvider {
   ensureContext(): boolean {
     return false;
   }
+
+  async resume(): Promise<void> {}
 
   playCue(request: AudioCueRequest): AudioCueHandle {
     return this.resolveCue(request);

@@ -18,7 +18,7 @@ import {
   requiredVisualKeys,
   SilentAudioProvider,
 } from "../../src/presentation";
-import type { MusicRequest } from "../../src/presentation";
+import type { AudioProvider, MusicRequest } from "../../src/presentation";
 
 function musicRequest(id: string): MusicRequest {
   if (id.startsWith("music.plane.")) {
@@ -105,6 +105,14 @@ describe("procedural audio provider", () => {
     audio.suspend();
     expect(hashSaveState(runtime.save)).toBe(before);
   });
+
+  it("exposes async resume without casting and is safe in node", async () => {
+    const runtime = createNewGame("tight-v1", "0", { cache: createAcceptedWorldCache() });
+    const before = hashSaveState(runtime.save);
+    const provider: AudioProvider = audio;
+    await expect(provider.resume()).resolves.toBeUndefined();
+    expect(hashSaveState(runtime.save)).toBe(before);
+  });
 });
 
 describe("replaceable audio providers", () => {
@@ -125,5 +133,20 @@ describe("replaceable audio providers", () => {
     const hybrid = new HybridAudioProvider(assets, procedural);
     expect(hybrid.resolveCue({ semanticId: "sfx.ui.confirm" }).silent).toBe(true);
     expect(hybrid.resolveCue({ semanticId: "sfx.death" })).toEqual(procedural.resolveCue({ semanticId: "sfx.death" }));
+  });
+
+  it("resumes silent, asset, hybrid and facade without altering game state", async () => {
+    const runtime = createNewGame("tight-v1", "0", { cache: createAcceptedWorldCache() });
+    const before = hashSaveState(runtime.save);
+    const silent: AudioProvider = new SilentAudioProvider();
+    const assets = new AssetAudioProvider();
+    const procedural = new ProceduralAudioProvider();
+    const hybrid: AudioProvider = new HybridAudioProvider(assets, procedural);
+    const facade = new PresentationFacade(new ProceduralVisualProvider(), silent);
+    await expect(silent.resume()).resolves.toBeUndefined();
+    await expect(assets.resume()).resolves.toBeUndefined();
+    await expect(hybrid.resume()).resolves.toBeUndefined();
+    await expect(facade.resume()).resolves.toBeUndefined();
+    expect(hashSaveState(runtime.save)).toBe(before);
   });
 });

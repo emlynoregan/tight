@@ -41,6 +41,10 @@ export class HybridAudioProvider implements AudioProvider {
     return this.primary.ensureContext() || this.fallback.ensureContext();
   }
 
+  async resume(): Promise<void> {
+    await Promise.all([this.primary.resume(), this.fallback.resume()]);
+  }
+
   playCue(request: AudioCueRequest): AudioCueHandle {
     if (this.primary.has(request.semanticId)) {
       return this.primary.playCue(request);
