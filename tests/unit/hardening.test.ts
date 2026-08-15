@@ -119,3 +119,33 @@ describe("preferences", () => {
     expect(store.preferences?.audio.enabled).toBe(false);
   });
 });
+
+describe("browser QA setup helpers", () => {
+  it("positions the player on an interact exit so E changes plane", () => {
+    const controller = silent({ seed: "0" });
+    const setup = controller.debugStandAtInteractExit();
+    expect(setup.fromPlane).toBe("0,1");
+    expect(setup.destinationPlane).not.toBe(setup.fromPlane);
+    expect(controller.handleIntent({ type: "interact" })?.ok).toBe(true);
+    const result = controller.tick();
+    expect(result.events.some((event) => event.type === "transition_activated")).toBe(true);
+    expect(`${controller.runtime.save.plane.a},${controller.runtime.save.plane.b}`).toBe(setup.destinationPlane);
+  });
+
+  it("places an adjacent hostile so F resolves ordinary combat", () => {
+    const controller = silent({ seed: "0" });
+    const setup = controller.debugPlaceAdjacentHostile();
+    expect(setup.monsterId).toBe("rat.qa");
+    expect(controller.handleIntent({ type: "attack" })?.ok).toBe(true);
+    const result = controller.tick();
+    expect(
+      result.events.some(
+        (event) =>
+          event.type === "attack_hit" ||
+          event.type === "attack_miss" ||
+          event.type === "damage_taken" ||
+          event.type === "monster_died",
+      ),
+    ).toBe(true);
+  });
+});

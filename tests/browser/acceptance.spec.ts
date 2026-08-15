@@ -98,4 +98,26 @@ test.describe("Tight browser acceptance", () => {
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("heading", { name: "Olympus conquered." })).toHaveCount(0);
   });
+
+  test("activates a real transition through interact", async ({ page }) => {
+    await boot(page, "?qa=1&new=1&seed=0");
+    const setup = await page.evaluate(() => {
+      const qa = (window as unknown as { __tightQa: { controller: { debugStandAtInteractExit: () => { fromPlane: string; destinationPlane: string } } } }).__tightQa;
+      return qa.controller.debugStandAtInteractExit();
+    });
+    expect(setup.fromPlane).not.toBe(setup.destinationPlane);
+    await page.keyboard.press("e");
+    await expect(page.locator(".tight-plane")).toContainText(`Plane (${setup.destinationPlane})`, { timeout: 4_000 });
+    await expect(page.locator(".tight-log")).toContainText("Transition to");
+  });
+
+  test("resolves ordinary combat through the attack key", async ({ page }) => {
+    await boot(page, "?qa=1&new=1&seed=0");
+    await page.evaluate(() => {
+      const qa = (window as unknown as { __tightQa: { controller: { debugPlaceAdjacentHostile: () => unknown } } }).__tightQa;
+      qa.controller.debugPlaceAdjacentHostile();
+    });
+    await page.keyboard.press("f");
+    await expect(page.locator(".tight-log")).toContainText(/hits|misses|takes/, { timeout: 4_000 });
+  });
 });

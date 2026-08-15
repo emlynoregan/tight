@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "test:browser": "npm run build && playwright test",
     "seed-sweep": "vitest run tests/unit/accepted-world.test.ts -t \"headless seed sweep\"",
-    "seed-sweep:large": "vitest run tests/unit/accepted-world.test.ts -t \"headless seed sweep\""
+    "seed-sweep:release": "vitest run tests/unit/accepted-world-release-sweep.test.ts -t \"release accepted-world sweep\""
   },
   "dependencies": {
     "idb": "^8.0.3",

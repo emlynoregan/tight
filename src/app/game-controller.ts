@@ -2,6 +2,7 @@ import {
   applyPlayerCommand,
   CONTENT_REGISTRY,
   createAcceptedWorldCache,
+  createMonsterActor,
   createNewGame,
   createRuntimeFromSaveRecord,
   formatTickEvent,
@@ -28,7 +29,10 @@ import {
   type TickResult,
 } from "../core";
 import { CORE_IDENTITY } from "../core/identity";
-import { planeKey } from "../core/model/plane";
+import { planeKey, planesEqual } from "../core/model/plane";
+import { DIRECTION_DELTA } from "../core/model/save-state";
+import { canOccupy } from "../core/rules/occupancy";
+import { transitionById } from "../core/rules/transitions";
 import type { InputIntent } from "../input/input-map";
 import { PresentationFacade, ProceduralAudioProvider, ProceduralVisualProvider } from "../presentation";
 import {
@@ -378,6 +382,56 @@ export class GameController {
     }
     boss.hp = 0;
     return this.tick();
+  }
+
+  debugStandAtInteractExit(): { readonly fromPlane: string; readonly destinationPlane: string } {
+    const player = playerActor(this.runtime);
+    const plane = this.runtime.currentPlaneBase;
+    for (const fixture of plane.transitionFixtures) {
+      const transition = transitionById(this.runtime, fixture.transitionId);
+      if (!transition || !planesEqual(transition.sourcePlane, plane.plane)) {
+        continue;
+      }
+      if (transition.initiallyBroken || transition.progressionClass === "optional_broken") {
+        continue;
+      }
+      if (transition.gateId) {
+        continue;
+      }
+      const archetype = CONTENT_REGISTRY.byId.transition.get(transition.archetypeId);
+      if (archetype?.activation !== "interact") {
+        continue;
+      }
+      const standOn = { x: fixture.x, y: fixture.y };
+      if (!canOccupy(plane, this.runtime.save.actors, standOn, player.id, this.runtime.save)) {
+        continue;
+      }
+      player.x = standOn.x;
+      player.y = standOn.y;
+      this.runtime.save.heldDirection = null;
+      this.runtime.save.actionQueue = [];
+      return {
+        fromPlane: planeKey(this.runtime.save.plane),
+        destinationPlane: planeKey(transition.destinationPlane),
+      };
+    }
+    throw new Error("UNREALIZABLE_PLANE: no interact-activated open exit on the current plane");
+  }
+
+  debugPlaceAdjacentHostile(): { readonly monsterId: string; readonly hp: number } {
+    const player = playerActor(this.runtime);
+    for (const delta of Object.values(DIRECTION_DELTA)) {
+      const cell = { x: player.x + delta.x, y: player.y + delta.y };
+      if (!canOccupy(this.runtime.currentPlaneBase, this.runtime.save.actors, cell, "rat.qa", this.runtime.save)) {
+        continue;
+      }
+      const rat = createMonsterActor("rat.qa", "rat", this.runtime.save.plane, cell.x, cell.y);
+      this.runtime.save.actors.push(rat);
+      this.runtime.save.heldDirection = null;
+      this.runtime.save.actionQueue = [];
+      return { monsterId: rat.id, hp: rat.hp };
+    }
+    throw new Error("UNREALIZABLE_PLANE: no adjacent open cell for a hostile");
   }
 
   snapshot(): GameSnapshot {
