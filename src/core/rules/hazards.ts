@@ -1,13 +1,14 @@
 import { CONTENT_REGISTRY } from "../data/registry";
 import type { PlaneBase } from "../generation/plane-types";
 import { planeKey, type MapCoordinate } from "../model/plane";
+import type { HazardTrigger } from "../model/content-types";
 import type { ActorState, SaveState } from "../model/save-state";
 import { equippedProtectionTags } from "./actor-stats";
-import { applyEffectIds } from "./apply-effects";
+import { applyStaticEffectIds } from "./effect-core";
 import { addWorldFlag } from "./grants";
 import type { TickEvent } from "./tick-events";
 
-export type HazardTrigger = "onEnter" | "onEndTick";
+export type { HazardTrigger };
 
 function consumedFlag(plane: PlaneBase, cell: MapCoordinate, hazardId: string): string {
   return `consumedHazard:${planeKey(plane.plane)}:${cell.x},${cell.y}:${hazardId}`;
@@ -30,8 +31,9 @@ export function applyHazardsAt(
   actor: ActorState,
   trigger: HazardTrigger,
   events: TickEvent[],
+  at: MapCoordinate = actor,
 ): void {
-  const tileId = plane.terrain[actor.y]?.[actor.x];
+  const tileId = plane.terrain[at.y]?.[at.x];
   const tile = tileId ? CONTENT_REGISTRY.byId.tile.get(tileId) : undefined;
   const hazardId = tile?.hazardId;
   if (!hazardId) {
@@ -41,16 +43,16 @@ export function applyHazardsAt(
   if (!hazard || !hazard.triggers.includes(trigger)) {
     return;
   }
-  if (save.flags.includes(consumedFlag(plane, actor, hazardId))) {
+  if (save.flags.includes(consumedFlag(plane, at, hazardId))) {
     return;
   }
   if (actorHasProtection(save, actor, hazard.protectionTag)) {
     return;
   }
-  applyEffectIds(save, plane, hazard.effectIds, actor, null, events);
-  events.push({ type: "hazard_triggered", actorId: actor.id, detail: hazard.id, x: actor.x, y: actor.y });
+  applyStaticEffectIds(save, plane, hazard.effectIds, actor, null, events);
+  events.push({ type: "hazard_triggered", actorId: actor.id, detail: hazard.id, x: at.x, y: at.y });
   if (hazard.consumed) {
-    addWorldFlag(save, consumedFlag(plane, actor, hazardId));
+    addWorldFlag(save, consumedFlag(plane, at, hazardId));
   }
 }
 

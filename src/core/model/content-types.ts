@@ -340,6 +340,10 @@ export interface EncounterDefinition {
   readonly pattern: CatalogueId;
   readonly weight: number;
   readonly slots: readonly EncounterSlot[];
+  readonly eligibleFamilies: readonly FamilyId[];
+  readonly requiredTerrainTags: readonly string[];
+  readonly forbiddenTerrainTags: readonly string[];
+  readonly pureFamilyOnly: boolean;
 }
 
 export interface EncounterSlot {
@@ -458,9 +462,11 @@ export interface DialogueNode {
   readonly choices: readonly DialogueChoice[];
 }
 
+export type HazardTrigger = "onEnter" | "onLeave" | "onEndTick" | "onInteract";
+
 export interface HazardDefinition {
   readonly id: CatalogueId;
-  readonly triggers: readonly ("onEnter" | "onEndTick")[];
+  readonly triggers: readonly HazardTrigger[];
   readonly effectIds: readonly CatalogueId[];
   readonly protectionTag: CatalogueId | null;
   readonly visible: boolean;

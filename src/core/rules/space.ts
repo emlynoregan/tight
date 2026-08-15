@@ -4,10 +4,10 @@ import type { MapCoordinate } from "../model/plane";
 import type { ActorState, Direction, SaveState } from "../model/save-state";
 import { DIRECTION_DELTA } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
+import { relocateActor } from "./apply-effects";
 import { canOccupy, destinationCell } from "./occupancy";
 import type { TickEvent } from "./tick-events";
 import { maybeStepOnTransition } from "./transitions";
-import { applyHazardsAt } from "./hazards";
 
 export function spacePhysicsActive(family: string): boolean {
   return family === "space";
@@ -106,15 +106,35 @@ export function applyEnvironmentalMovement(
     if (!actor || (actor.vx === 0 && actor.vy === 0)) {
       continue;
     }
-    const landed = simulateVelocityMovement(plane, save.actors, actor, actor.vx, actor.vy, save);
-    const moved = landed.x !== actor.x || landed.y !== actor.y;
-    if (moved) {
-      actor.x = landed.x;
-      actor.y = landed.y;
-      events.push({ type: "actor_moved", actorId: actor.id, x: actor.x, y: actor.y });
-      applyHazardsAt(save, plane, actor, "onEnter", events);
+    let remainingX = actor.vx;
+    let remainingY = actor.vy;
+    let moved = false;
+    let blocked = false;
+    while (remainingX !== 0 || remainingY !== 0) {
+      if (remainingX !== 0) {
+        const step = remainingX > 0 ? 1 : -1;
+        const dest = destinationCell(actor, { x: step, y: 0 }, plane.wraps);
+        if (!dest || !relocateActor(save, plane, actor, dest, events, "step")) {
+          blocked = true;
+          break;
+        }
+        remainingX -= step;
+        moved = true;
+        events.push({ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y });
+      }
+      if (remainingY !== 0) {
+        const step = remainingY > 0 ? 1 : -1;
+        const dest = destinationCell(actor, { x: 0, y: step }, plane.wraps);
+        if (!dest || !relocateActor(save, plane, actor, dest, events, "step")) {
+          blocked = true;
+          break;
+        }
+        remainingY -= step;
+        moved = true;
+        events.push({ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y });
+      }
     }
-    if (landed.blocked) {
+    if (blocked) {
       actor.vx = 0;
       actor.vy = 0;
       events.push({ type: "velocity_stopped", actorId: actor.id });

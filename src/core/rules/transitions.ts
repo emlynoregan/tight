@@ -19,7 +19,8 @@ import type {
 import { materializeNonPlayerActors, type GameRuntime } from "../runtime/game-runtime";
 import { materializeRuntimePlane } from "../runtime/materialize-plane";
 import { actorPreventsPersonalTransition } from "./actor-stats";
-import { grantApEvent } from "./grants";
+import { addWorldFlag, grantApEvent } from "./grants";
+import { removeInventoryItem } from "./inventory";
 import { canOccupy, cellBlockedByTerrain, destinationCell } from "./occupancy";
 import { movementCostTo } from "./pathfinding";
 import { refreshQuestProgress } from "./quests";
@@ -115,6 +116,60 @@ function inventoryCount(save: SaveState, itemId: string): number {
   return pack + keys;
 }
 
+export function gateUnlockedFlag(gateId: string): string {
+  return `gateUnlocked:${gateId}`;
+}
+
+function consumeResourceGate(save: SaveState, gate: TopologyGate): boolean {
+  if (!gate.requiredResourceId) {
+    return true;
+  }
+  if (save.flags.includes(gateUnlockedFlag(gate.id))) {
+    return true;
+  }
+  const quantity = gate.requiredQuantity ?? 0;
+  if (inventoryCount(save, gate.requiredResourceId) < quantity) {
+    return false;
+  }
+  for (let n = 0; n < quantity; n += 1) {
+    if (removeInventoryItem(save, gate.requiredResourceId, 1)) {
+      continue;
+    }
+    const keyIndex = save.player.keyItems.findIndex((row) => row.itemId === gate.requiredResourceId && row.quantity > 0);
+    if (keyIndex < 0) {
+      return false;
+    }
+    const stack = save.player.keyItems[keyIndex]!;
+    if (stack.quantity <= 1) {
+      save.player.keyItems.splice(keyIndex, 1);
+    } else {
+      save.player.keyItems[keyIndex] = { itemId: stack.itemId, quantity: stack.quantity - 1 };
+    }
+  }
+  addWorldFlag(save, gateUnlockedFlag(gate.id));
+  return true;
+}
+
+export function unlockGate(runtime: GameRuntime, gate: TopologyGate): boolean {
+  if (gate.requiredFlag && !runtime.save.flags.includes(gate.requiredFlag)) {
+    return false;
+  }
+  if (gate.requiredItemId && inventoryCount(runtime.save, gate.requiredItemId) <= 0) {
+    return false;
+  }
+  if (gate.requiredAbilityId && !runtime.save.player.learnedAbilities.includes(gate.requiredAbilityId)) {
+    return false;
+  }
+  if (gate.guardianInstanceId && !runtime.save.flags.includes(`defeated:${gate.guardianInstanceId}`)) {
+    return false;
+  }
+  if (gate.requiredResourceId) {
+    return consumeResourceGate(runtime.save, gate);
+  }
+  addWorldFlag(runtime.save, gateUnlockedFlag(gate.id));
+  return true;
+}
+
 function conditionsMet(runtime: GameRuntime, actor: ActorState, transition: TopologyTransition, personal: boolean): boolean {
   if (runtime.save.consumedTransitionIds.includes(transition.id)) {
     return false;
@@ -135,7 +190,7 @@ function conditionsMet(runtime: GameRuntime, actor: ActorState, transition: Topo
   if (gate.requiredAbilityId && !runtime.save.player.learnedAbilities.includes(gate.requiredAbilityId)) {
     return false;
   }
-  if (gate.requiredResourceId) {
+  if (gate.requiredResourceId && !runtime.save.flags.includes(gateUnlockedFlag(gate.id))) {
     if (inventoryCount(runtime.save, gate.requiredResourceId) < (gate.requiredQuantity ?? 0)) {
       return false;
     }
@@ -386,14 +441,22 @@ export function activateTransition(runtime: GameRuntime, actor: ActorState, atte
   if (!destPlane) {
     return fail(actor.id, "blocked");
   }
-  const arrival = arrivalCellFor(runtime, transition, actor, sourceCell);
-  if (arrival.x < 0 || arrival.x >= MAP_SIZE || arrival.y < 0 || arrival.y >= MAP_SIZE) {
+  const intended = arrivalCellFor(runtime, transition, actor, sourceCell);
+  if (intended.x < 0 || intended.x >= MAP_SIZE || intended.y < 0 || intended.y >= MAP_SIZE) {
     return fail(actor.id, "blocked");
   }
-  if (cellBlockedByTerrain(destPlane, arrival)) {
-    return fail(actor.id, "broken");
+  let arrival = intended;
+  if (cellBlockedByTerrain(destPlane, intended)) {
+    const bumped = nearestLegalArrival(destPlane, runtime.save.actors, intended, actor.id, runtime.save);
+    if (!bumped) {
+      return fail(actor.id, "broken");
+    }
+    arrival = bumped;
+  } else if (!canOccupy(destPlane, runtime.save.actors, intended, actor.id, runtime.save)) {
+    return fail(actor.id, "blocked");
   }
-  if (!canOccupy(destPlane, runtime.save.actors, arrival, actor.id, runtime.save)) {
+  const gate = gateOf(runtime, transition);
+  if (gate && !consumeResourceGate(runtime.save, gate)) {
     return fail(actor.id, "blocked");
   }
 

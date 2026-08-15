@@ -1,4 +1,5 @@
-import type { EncounterDefinition } from "../model/content-types";
+import type { EncounterDefinition, EncounterSlot } from "../model/content-types";
+import type { FamilyId } from "../model/ids";
 
 export const ENCOUNTER_ROLES = ["pack", "mixed", "ambush", "guard", "elite"] as const;
 export const PLACEMENT_PATTERNS = [
@@ -13,29 +14,63 @@ export const PLACEMENT_PATTERNS = [
   "fixed_stamp",
 ] as const;
 
+function enc(
+  id: string,
+  tierMin: number,
+  tierMax: number,
+  role: EncounterDefinition["role"],
+  pattern: EncounterDefinition["pattern"],
+  weight: number,
+  slots: readonly EncounterSlot[],
+  families: readonly FamilyId[],
+  extras: Partial<Pick<EncounterDefinition, "requiredTerrainTags" | "forbiddenTerrainTags" | "pureFamilyOnly">> = {},
+): EncounterDefinition {
+  return {
+    id,
+    tierMin,
+    tierMax,
+    role,
+    pattern,
+    weight,
+    slots,
+    eligibleFamilies: families,
+    requiredTerrainTags: extras.requiredTerrainTags ?? [],
+    forbiddenTerrainTags: extras.forbiddenTerrainTags ?? [],
+    pureFamilyOnly: extras.pureFamilyOnly ?? false,
+  };
+}
+
+const SURFACE: readonly FamilyId[] = ["aboveground", "inside"];
+const DUNGEON: readonly FamilyId[] = ["dungeon"];
+const ARCANE: readonly FamilyId[] = ["arcane"];
+const ETHEREAL: readonly FamilyId[] = ["ethereal"];
+const SPACE: readonly FamilyId[] = ["space"];
+const VOID: readonly FamilyId[] = ["void"];
+const OLYMPUS: readonly FamilyId[] = ["olympus"];
+
 export const ENCOUNTERS: readonly EncounterDefinition[] = [
-  { id: "rats", tierMin: 0, tierMax: 3, role: "pack", pattern: "cluster", weight: 5, slots: [{ monsterId: "rat", min: 2, max: 4, optional: false }] },
-  { id: "wolves", tierMin: 1, tierMax: 4, role: "pack", pattern: "scatter", weight: 4, slots: [{ monsterId: "wolf", min: 2, max: 3, optional: false }] },
-  { id: "bandit_pair", tierMin: 1, tierMax: 5, role: "mixed", pattern: "scatter", weight: 4, slots: [{ monsterId: "bandit", min: 1, max: 1, optional: false }, { monsterId: "bandit_archer", min: 1, max: 1, optional: false }] },
-  { id: "bandit_patrol", tierMin: 2, tierMax: 5, role: "mixed", pattern: "line", weight: 2, slots: [{ monsterId: "bandit", min: 2, max: 2, optional: false }, { monsterId: "bandit_archer", min: 1, max: 1, optional: false }] },
-  { id: "cave_ambush", tierMin: 4, tierMax: 7, role: "ambush", pattern: "hidden_edge", weight: 5, slots: [{ monsterId: "cave_crawler", min: 1, max: 2, optional: false }] },
-  { id: "golem_guard", tierMin: 4, tierMax: 8, role: "guard", pattern: "guard_door", weight: 3, slots: [{ monsterId: "stone_golem", min: 1, max: 1, optional: false }] },
-  { id: "ruin_mix", tierMin: 5, tierMax: 8, role: "mixed", pattern: "room", weight: 2, slots: [{ monsterId: "cave_crawler", min: 1, max: 1, optional: false }, { monsterId: "stone_golem", min: 1, max: 1, optional: false }] },
-  { id: "arcane_hunt", tierMin: 6, tierMax: 9, role: "mixed", pattern: "scatter", weight: 5, slots: [{ monsterId: "rune_hound", min: 1, max: 1, optional: false }, { monsterId: "living_spell", min: 1, max: 1, optional: false }] },
-  { id: "arcane_pack", tierMin: 6, tierMax: 9, role: "pack", pattern: "scatter", weight: 3, slots: [{ monsterId: "rune_hound", min: 2, max: 2, optional: false }] },
-  { id: "spell_nest", tierMin: 7, tierMax: 10, role: "pack", pattern: "room", weight: 2, slots: [{ monsterId: "living_spell", min: 2, max: 2, optional: false }] },
-  { id: "ghost_haunt", tierMin: 8, tierMax: 11, role: "mixed", pattern: "room", weight: 5, slots: [{ monsterId: "ghost", min: 1, max: 1, optional: false }, { monsterId: "nightmare", min: 0, max: 1, optional: true }] },
-  { id: "spirit_pack", tierMin: 8, tierMax: 11, role: "pack", pattern: "scatter", weight: 3, slots: [{ monsterId: "ghost", min: 2, max: 2, optional: false }] },
-  { id: "nightmare_ambush", tierMin: 9, tierMax: 12, role: "ambush", pattern: "hidden_edge", weight: 3, slots: [{ monsterId: "nightmare", min: 1, max: 1, optional: false }] },
-  { id: "orbital_patrol", tierMin: 10, tierMax: 13, role: "mixed", pattern: "scatter", weight: 5, slots: [{ monsterId: "orbital_drone", min: 1, max: 1, optional: false }, { monsterId: "gravity_predator", min: 1, max: 1, optional: false }] },
-  { id: "drone_line", tierMin: 10, tierMax: 13, role: "pack", pattern: "line", weight: 3, slots: [{ monsterId: "orbital_drone", min: 2, max: 2, optional: false }] },
-  { id: "gravity_hunt", tierMin: 11, tierMax: 14, role: "elite", pattern: "scatter", weight: 3, slots: [{ monsterId: "gravity_predator", min: 1, max: 1, optional: false }] },
-  { id: "void_pack", tierMin: 12, tierMax: 15, role: "pack", pattern: "cluster", weight: 5, slots: [{ monsterId: "void_leech", min: 2, max: 4, optional: false }] },
-  { id: "void_hunt", tierMin: 12, tierMax: 15, role: "mixed", pattern: "hidden_edge", weight: 5, slots: [{ monsterId: "blind_hunter", min: 1, max: 1, optional: false }, { monsterId: "void_leech", min: 1, max: 2, optional: false }] },
-  { id: "blind_pair", tierMin: 13, tierMax: 15, role: "elite", pattern: "surround", weight: 2, slots: [{ monsterId: "blind_hunter", min: 2, max: 2, optional: false }] },
-  { id: "divine_guard", tierMin: 14, tierMax: 15, role: "mixed", pattern: "guard_door", weight: 5, slots: [{ monsterId: "herald", min: 1, max: 1, optional: false }, { monsterId: "divine_beast", min: 1, max: 1, optional: false }] },
-  { id: "beast_pair", tierMin: 14, tierMax: 15, role: "elite", pattern: "room", weight: 2, slots: [{ monsterId: "divine_beast", min: 2, max: 2, optional: false }] },
-  { id: "herald_circle", tierMin: 14, tierMax: 15, role: "pack", pattern: "surround", weight: 2, slots: [{ monsterId: "herald", min: 2, max: 2, optional: false }] },
+  enc("rats", 0, 3, "pack", "cluster", 5, [{ monsterId: "rat", min: 2, max: 4, optional: false }], SURFACE),
+  enc("wolves", 1, 4, "pack", "scatter", 4, [{ monsterId: "wolf", min: 2, max: 3, optional: false }], ["aboveground"]),
+  enc("bandit_pair", 1, 5, "mixed", "scatter", 4, [{ monsterId: "bandit", min: 1, max: 1, optional: false }, { monsterId: "bandit_archer", min: 1, max: 1, optional: false }], SURFACE),
+  enc("bandit_patrol", 2, 5, "mixed", "line", 2, [{ monsterId: "bandit", min: 2, max: 2, optional: false }, { monsterId: "bandit_archer", min: 1, max: 1, optional: false }], SURFACE),
+  enc("cave_ambush", 4, 7, "ambush", "hidden_edge", 5, [{ monsterId: "cave_crawler", min: 1, max: 2, optional: false }], DUNGEON, { requiredTerrainTags: ["dungeon"] }),
+  enc("golem_guard", 4, 8, "guard", "guard_door", 3, [{ monsterId: "stone_golem", min: 1, max: 1, optional: false }], DUNGEON),
+  enc("ruin_mix", 5, 8, "mixed", "room", 2, [{ monsterId: "cave_crawler", min: 1, max: 1, optional: false }, { monsterId: "stone_golem", min: 1, max: 1, optional: false }], DUNGEON),
+  enc("arcane_hunt", 6, 9, "mixed", "scatter", 5, [{ monsterId: "rune_hound", min: 1, max: 1, optional: false }, { monsterId: "living_spell", min: 1, max: 1, optional: false }], ARCANE),
+  enc("arcane_pack", 6, 9, "pack", "scatter", 3, [{ monsterId: "rune_hound", min: 2, max: 2, optional: false }], ARCANE),
+  enc("spell_nest", 7, 10, "pack", "room", 2, [{ monsterId: "living_spell", min: 2, max: 2, optional: false }], ARCANE),
+  enc("ghost_haunt", 8, 11, "mixed", "room", 5, [{ monsterId: "ghost", min: 1, max: 1, optional: false }, { monsterId: "nightmare", min: 0, max: 1, optional: true }], ETHEREAL),
+  enc("spirit_pack", 8, 11, "pack", "scatter", 3, [{ monsterId: "ghost", min: 2, max: 2, optional: false }], ETHEREAL),
+  enc("nightmare_ambush", 9, 12, "ambush", "hidden_edge", 3, [{ monsterId: "nightmare", min: 1, max: 1, optional: false }], ETHEREAL),
+  enc("orbital_patrol", 10, 13, "mixed", "scatter", 5, [{ monsterId: "orbital_drone", min: 1, max: 1, optional: false }, { monsterId: "gravity_predator", min: 1, max: 1, optional: false }], SPACE),
+  enc("drone_line", 10, 13, "pack", "line", 3, [{ monsterId: "orbital_drone", min: 2, max: 2, optional: false }], SPACE),
+  enc("gravity_hunt", 11, 14, "elite", "scatter", 3, [{ monsterId: "gravity_predator", min: 1, max: 1, optional: false }], SPACE),
+  enc("void_pack", 12, 15, "pack", "cluster", 5, [{ monsterId: "void_leech", min: 2, max: 4, optional: false }], VOID),
+  enc("void_hunt", 12, 15, "mixed", "hidden_edge", 5, [{ monsterId: "blind_hunter", min: 1, max: 1, optional: false }, { monsterId: "void_leech", min: 1, max: 2, optional: false }], VOID),
+  enc("blind_pair", 13, 15, "elite", "surround", 2, [{ monsterId: "blind_hunter", min: 2, max: 2, optional: false }], VOID),
+  enc("divine_guard", 14, 15, "mixed", "guard_door", 5, [{ monsterId: "herald", min: 1, max: 1, optional: false }, { monsterId: "divine_beast", min: 1, max: 1, optional: false }], OLYMPUS),
+  enc("beast_pair", 14, 15, "elite", "room", 2, [{ monsterId: "divine_beast", min: 2, max: 2, optional: false }], OLYMPUS),
+  enc("herald_circle", 14, 15, "pack", "surround", 2, [{ monsterId: "herald", min: 2, max: 2, optional: false }], OLYMPUS),
 ];
 
 export const GUARDIAN_ENCOUNTERS = [

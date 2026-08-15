@@ -202,6 +202,11 @@ export function validateContentRegistry(
     if (encounter.weight < 0) {
       issues.push({ path: `encounters.${encounter.id}.weight`, message: "negative weight" });
     }
+    for (const family of encounter.eligibleFamilies) {
+      if (!registry.planeFamilies.some((row) => row.id === family)) {
+        issues.push({ path: `encounters.${encounter.id}.eligibleFamilies`, message: `unknown family ${family}` });
+      }
+    }
     for (const slot of encounter.slots) {
       requireRef(issues, `encounters.${encounter.id}.slots`, slot.monsterId, registry.byId.monster.has(slot.monsterId));
     }

@@ -5,23 +5,30 @@ import {
   applyStatus,
   cellIsVisible,
   createAcceptedWorldCache,
+  createMonsterActor,
   createNewGame,
   createRuntimeFromSave,
   executeWitness,
   familyWraps,
+  forcedMove,
   getQuestLogView,
   getShopView,
   hasLineOfSight,
   hashSaveState,
   playerActor,
   recordDiscovery,
+  semantic,
   switchCurrentPlane,
+  teleportWithinPlane,
   tryAddItem,
 } from "../../src/core";
-import { emptyGrid } from "../../src/core/generation/grid";
+import { chebyshev, emptyGrid, manhattan } from "../../src/core/generation/grid";
 import type { PlaneBase } from "../../src/core/generation/plane-types";
 import { CONTENT_REGISTRY } from "../../src/core";
+import { cellsForEncounterPattern, encounterEligibleForPlane } from "../../src/core/rules/encounters";
+import { relocateActor } from "../../src/core/rules/apply-effects";
 import { setFeatureRuntimeState } from "../../src/core/rules/occupancy";
+import { startQuest, questState } from "../../src/core/rules/quests";
 
 const cache = createAcceptedWorldCache();
 
@@ -249,7 +256,7 @@ describe("dialogue, quests and witness", () => {
   it("executes a generated winning witness through runtime shop and quest systems", () => {
     const runtime = newGame();
     const result = executeWitness(runtime, runtime.world.witness);
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.message).toBe(true);
     expect(runtime.save.player.learnedAbilities.length + runtime.save.flags.length + runtime.save.collectedSources.length).toBeGreaterThan(0);
     const shopStep = runtime.world.witness.find((step) => step.type === "BUY_ITEM");
     const questStep = runtime.world.witness.find((step) => step.type === "COMPLETE_QUEST");
@@ -277,6 +284,271 @@ describe("dialogue, quests and witness", () => {
       expect(loaded.runtime.save.quests[0]?.state).toBe("active");
       expect(hashSaveState(loaded.runtime.save)).toBe(hashSaveState(runtime.save));
     }
+  });
+});
+
+function placementParts(plane: PlaneBase, subject: string) {
+  return [
+    semantic.string(plane.generatorVersion),
+    semantic.string(plane.worldSeed),
+    semantic.i64(0),
+    semantic.plane(plane.plane),
+    semantic.string("test.place"),
+    semantic.string(subject),
+  ];
+}
+
+function patternPlane(options: {
+  family?: PlaneBase["family"];
+  plane?: PlaneBase["plane"];
+  terrain?: string;
+  walls?: { x: number; y: number }[];
+  features?: { x: number; y: number; feature: string }[];
+  entry?: { x: number; y: number };
+  spawn?: boolean;
+}): PlaneBase {
+  const terrain = emptyGrid(options.terrain ?? "grass");
+  const features = emptyGrid<string | null>(null);
+  for (const wall of options.walls ?? []) {
+    terrain[wall.y]![wall.x] = "solid_rock";
+  }
+  for (const row of options.features ?? []) {
+    features[row.y]![row.x] = row.feature;
+  }
+  const entry = options.entry ?? { x: 0, y: 0 };
+  const planePair = options.plane ?? { a: 0, b: 1 };
+  return {
+    generatorVersion: "tight-v1",
+    worldSeed: "pattern",
+    plane: planePair,
+    family: options.family ?? "aboveground",
+    wraps: false,
+    terrain,
+    features,
+    namedPoints: [{ id: "entry", kind: "playerEntry", x: entry.x, y: entry.y }],
+    spawnRegions: options.spawn === false ? [] : [{ tag: "playerEntry", cells: [entry] }],
+    transitionFixtures: (options.features ?? [])
+      .filter((row) => row.feature === "transition_fixture")
+      .map((row, index) => ({ transitionId: `t${index}`, x: row.x, y: row.y })),
+    repairs: [],
+    planeHash: "pattern",
+  };
+}
+
+describe("encounter eligibility and placement patterns", () => {
+  it("forms a cluster rather than map-wide scatter", () => {
+    const plane = patternPlane({ entry: { x: 0, y: 0 } });
+    const encounter = CONTENT_REGISTRY.encounters.find((row) => row.id === "rats")!;
+    const cells = cellsForEncounterPattern(plane, new Set(), encounter, 3, placementParts(plane, "rats"));
+    expect(cells).not.toBeNull();
+    expect(cells).toHaveLength(3);
+    const cx = Math.round(cells!.reduce((sum, cell) => sum + cell.x, 0) / cells!.length);
+    const cy = Math.round(cells!.reduce((sum, cell) => sum + cell.y, 0) / cells!.length);
+    expect(cells!.every((cell) => chebyshev(cell, { x: cx, y: cy }) <= 2)).toBe(true);
+  });
+
+  it("forms a line placement", () => {
+    const plane = patternPlane({ entry: { x: 0, y: 0 } });
+    const encounter = CONTENT_REGISTRY.encounters.find((row) => row.id === "bandit_patrol")!;
+    const cells = cellsForEncounterPattern(plane, new Set(), encounter, 3, placementParts(plane, "line"));
+    expect(cells).not.toBeNull();
+    const sameRow = cells!.every((cell) => cell.y === cells![0]!.y);
+    const sameCol = cells!.every((cell) => cell.x === cells![0]!.x);
+    expect(sameRow || sameCol).toBe(true);
+    const axis = sameRow ? cells!.map((cell) => cell.x).sort((a, b) => a - b) : cells!.map((cell) => cell.y).sort((a, b) => a - b);
+    expect(axis[axis.length - 1]! - axis[0]!).toBe(axis.length - 1);
+  });
+
+  it("anchors guard_door placement to a transition fixture", () => {
+    const plane = patternPlane({
+      family: "dungeon",
+      plane: { a: 4, b: 5 },
+      terrain: "cave_floor",
+      entry: { x: 0, y: 0 },
+      features: [{ x: 8, y: 8, feature: "transition_fixture" }],
+    });
+    const encounter = CONTENT_REGISTRY.encounters.find((row) => row.id === "golem_guard")!;
+    const cells = cellsForEncounterPattern(plane, new Set(), encounter, 1, placementParts(plane, "guard"));
+    expect(cells).toHaveLength(1);
+    expect(manhattan(cells![0]!, { x: 8, y: 8 })).toBe(1);
+    expect(cells![0]!.x === 8 && cells![0]!.y === 8).toBe(false);
+  });
+
+  it("keeps hidden_edge and room placements distinct", () => {
+    const walls: { x: number; y: number }[] = [];
+    for (let y = 0; y < 16; y += 1) {
+      for (let x = 0; x < 16; x += 1) {
+        const inRoom = x >= 2 && x <= 6 && y >= 2 && y <= 6;
+        const inCorridor = x >= 7 && x <= 12 && y === 4;
+        if (!inRoom && !inCorridor) {
+          walls.push({ x, y });
+        }
+      }
+    }
+    const plane = patternPlane({
+      family: "dungeon",
+      plane: { a: 5, b: 6 },
+      terrain: "cave_floor",
+      walls,
+      entry: { x: 2, y: 2 },
+    });
+    const hidden = CONTENT_REGISTRY.encounters.find((row) => row.id === "cave_ambush")!;
+    const room = CONTENT_REGISTRY.encounters.find((row) => row.id === "ruin_mix")!;
+    const hiddenCells = cellsForEncounterPattern(plane, new Set(), hidden, 2, placementParts(plane, "hidden"));
+    const roomCells = cellsForEncounterPattern(plane, new Set(), room, 2, placementParts(plane, "room"));
+    expect(hiddenCells).not.toBeNull();
+    expect(roomCells).not.toBeNull();
+    const hiddenKeys = hiddenCells!.map((cell) => `${cell.x},${cell.y}`).sort().join("|");
+    const roomKeys = roomCells!.map((cell) => `${cell.x},${cell.y}`).sort().join("|");
+    expect(hiddenKeys).not.toBe(roomKeys);
+    expect(hiddenCells!.every((cell) => cell.x === 0 || cell.y === 0 || cell.x === 15 || cell.y === 15 || walls.some((wall) => manhattan(cell, wall) === 1))).toBe(true);
+    expect(roomCells!.every((cell) => cell.x >= 2 && cell.x <= 6 && cell.y >= 2 && cell.y <= 6)).toBe(true);
+  });
+
+  it("excludes encounters by family and required terrain", () => {
+    const grass = patternPlane({ family: "aboveground", plane: { a: 0, b: 1 } });
+    const cave = patternPlane({ family: "dungeon", plane: { a: 4, b: 5 }, terrain: "cave_floor" });
+    const ambush = CONTENT_REGISTRY.encounters.find((row) => row.id === "cave_ambush")!;
+    const wolves = CONTENT_REGISTRY.encounters.find((row) => row.id === "wolves")!;
+    expect(encounterEligibleForPlane(ambush, grass)).toBe(false);
+    expect(encounterEligibleForPlane(wolves, grass)).toBe(true);
+    expect(encounterEligibleForPlane(ambush, cave)).toBe(true);
+    expect(encounterEligibleForPlane(wolves, cave)).toBe(false);
+  });
+
+  it("does not spawn on entry or required transition cells", () => {
+    const plane = patternPlane({
+      entry: { x: 5, y: 5 },
+      features: [{ x: 10, y: 10, feature: "transition_fixture" }],
+    });
+    const encounter = CONTENT_REGISTRY.encounters.find((row) => row.id === "rats")!;
+    const cells = cellsForEncounterPattern(plane, new Set(), encounter, 3, placementParts(plane, "safety"));
+    expect(cells).not.toBeNull();
+    for (const cell of cells!) {
+      expect(manhattan(cell, { x: 5, y: 5 })).toBeGreaterThanOrEqual(2);
+      expect(cell.x === 10 && cell.y === 10).toBe(false);
+    }
+  });
+});
+
+describe("hazard movement triggers", () => {
+  it("triggers onEnter once per forced-move cell and skips a blocked destination", () => {
+    const runtime = newGame();
+    const player = playerActor(runtime);
+    runtime.save.actors = [player];
+    player.x = 2;
+    player.y = 2;
+    withTerrain(runtime, "lava", 3, 2);
+    withTerrain(runtime, "lava", 4, 2);
+    const blocker = createMonsterActor("blocker", "rat", { a: player.plane.a, b: player.plane.b }, 4, 2);
+    blocker.blocking = true;
+    runtime.save.actors.push(blocker);
+    const events: { type: string; detail?: string; x?: number; y?: number }[] = [];
+    forcedMove(runtime.save, runtime.currentPlaneBase, player, { x: 1, y: 2 }, 3, "push", events);
+    const lavaHits = events.filter((event) => event.type === "hazard_triggered" && event.detail === "lava");
+    expect(lavaHits).toHaveLength(1);
+    expect(lavaHits[0]?.x).toBe(3);
+    expect(player.x).toBe(3);
+    expect(events.some((event) => event.type === "forced_move_blocked")).toBe(true);
+  });
+
+  it("teleports within plane with occupancy and destination onEnter only", () => {
+    const runtime = newGame();
+    const player = playerActor(runtime);
+    runtime.save.actors = [player];
+    player.x = 2;
+    player.y = 2;
+    withTerrain(runtime, "lava", 3, 2);
+    withTerrain(runtime, "lava", 5, 2);
+    const events: { type: string; detail?: string; x?: number }[] = [];
+    expect(teleportWithinPlane(runtime.save, runtime.currentPlaneBase, player, { x: 5, y: 2 }, 4, events)).toBe(true);
+    expect(player.x).toBe(5);
+    const lavaHits = events.filter((event) => event.type === "hazard_triggered" && event.detail === "lava");
+    expect(lavaHits).toHaveLength(1);
+    expect(lavaHits[0]?.x).toBe(5);
+    expect(teleportWithinPlane(runtime.save, runtime.currentPlaneBase, player, { x: 5, y: 2 }, 4, events)).toBe(true);
+    const occupied = createMonsterActor("block", "rat", player.plane, 8, 2);
+    runtime.save.actors.push(occupied);
+    expect(teleportWithinPlane(runtime.save, runtime.currentPlaneBase, player, { x: 8, y: 2 }, 4, events)).toBe(false);
+    expect(player.x).toBe(5);
+  });
+
+  it("fires onLeave and onInteract including consumed one-shots", () => {
+    const runtime = newGame();
+    const player = playerActor(runtime);
+    runtime.save.actors = [player];
+    runtime.currentPlaneBase = openPlane();
+    player.plane = { ...runtime.currentPlaneBase.plane };
+    player.x = 2;
+    player.y = 2;
+    withTerrain(runtime, "burning_ground", 2, 2);
+    const events: { type: string; detail?: string }[] = [];
+    expect(relocateActor(runtime.save, runtime.currentPlaneBase, player, { x: 3, y: 2 }, events, "step")).toBe(true);
+    expect(events.some((event) => event.type === "hazard_triggered" && event.detail === "burning_ground")).toBe(true);
+
+    const interact = newGame();
+    const actor = playerActor(interact);
+    interact.save.actors = [actor];
+    const anchor = interact.currentPlaneBase.namedPoints.find((point) => point.id === "safe_anchor");
+    expect(anchor).toBeDefined();
+    actor.x = anchor!.x;
+    actor.y = anchor!.y;
+    withTerrain(interact, "hidden_spikes", actor.x, actor.y);
+    applyPlayerCommand(interact, { type: "queue", action: { type: "interact" } });
+    const first = advanceTick(interact);
+    expect(first.events.some((event) => event.type === "hazard_triggered" && event.detail === "hidden_spikes")).toBe(true);
+    applyPlayerCommand(interact, { type: "queue", action: { type: "interact" } });
+    const second = advanceTick(interact);
+    expect(second.events.some((event) => event.type === "hazard_triggered" && event.detail === "hidden_spikes")).toBe(false);
+  });
+});
+
+describe("mechanic-faithful witness", () => {
+  it("executes seed 0 through real transition, death, quest and shop boundaries", () => {
+    const runtime = newGame();
+    const result = executeWitness(runtime, runtime.world.witness);
+    expect(result.ok, result.message).toBe(true);
+    const shopStep = runtime.world.witness.find((step) => step.type === "BUY_ITEM");
+    const questStep = runtime.world.witness.find((step) => step.type === "COMPLETE_QUEST");
+    expect(shopStep || questStep).toBeTruthy();
+    expect(runtime.world.witness.some((step) => step.type === "FINAL_BOSS_AVAILABLE" || step.type === "REACH_OLYMPUS")).toBe(true);
+  });
+
+  it("fails a gated transition rather than switching planes anyway", () => {
+    const runtime = newGame();
+    const gated = runtime.topology.transitions.find((transition) => {
+      const gate = runtime.topology.gates.find((row) => row.id === transition.gateId);
+      return Boolean(gate?.requiredFlag || gate?.requiredResourceId || gate?.guardianInstanceId || gate?.requiredAbilityId || gate?.requiredItemId);
+    });
+    expect(gated).toBeDefined();
+    const beforeDest = { ...gated!.destinationPlane };
+    const result = executeWitness(runtime, [{ type: "TRAVERSE_TRANSITION", id: gated!.id }]);
+    expect(result.ok).toBe(false);
+    expect(runtime.save.plane.a === beforeDest.a && runtime.save.plane.b === beforeDest.b).toBe(false);
+  });
+
+  it("does not grant a guardian reward unless the death path runs", () => {
+    const runtime = newGame();
+    const guardian = runtime.topology.guardianInstances[0]!;
+    expect(switchCurrentPlane(runtime, guardian.plane)).not.toBeNull();
+    const sourceId = `source.guardian_reward.${guardian.id}`;
+    runtime.save.actors = runtime.save.actors.filter((actor) => actor.id !== guardian.id);
+    expect(runtime.save.collectedSources.includes(sourceId)).toBe(false);
+    expect(runtime.save.flags.includes(`defeated:${guardian.id}`)).toBe(false);
+
+    const throughDeath = newGame();
+    const deathResult = executeWitness(throughDeath, [{ type: "DEFEAT_GUARDIAN", id: guardian.id }]);
+    expect(deathResult.ok).toBe(true);
+    expect(throughDeath.save.flags.includes(`defeated:${guardian.id}`)).toBe(true);
+    expect(deathResult.events.some((event) => event.type === "monster_died" && event.actorId === guardian.id)).toBe(true);
+  });
+
+  it("does not complete a quest until its objective is satisfied", () => {
+    const runtime = newGame();
+    const result = executeWitness(runtime, [{ type: "COMPLETE_QUEST", id: "q_first_crack" }]);
+    expect(result.ok).toBe(false);
+    startQuest(runtime, "q_first_crack", []);
+    expect(questState(runtime.save, "q_first_crack")).not.toBe("complete");
   });
 });
 

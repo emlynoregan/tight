@@ -2,7 +2,7 @@ import type { ProgressionSource } from "../generation/topology-types";
 import { CONTENT_REGISTRY } from "../data/registry";
 import type { MapCoordinate, PlanePair } from "../model/plane";
 import type { SaveState } from "../model/save-state";
-import { tryAddItem } from "./inventory";
+import { itemQuantity, tryAddItem } from "./inventory";
 import type { TickEvent } from "./tick-events";
 
 export interface GrantToken {
@@ -134,6 +134,25 @@ export function applyGrantTokens(
       grantItem(save, token.value, quantity, dropAt, events);
     }
   }
+}
+
+export function progressionRequirementsMet(save: SaveState, requirements: readonly string[]): boolean {
+  return requirements.every((requirement) => {
+    const token = parseGrantToken(requirement);
+    if (!token) {
+      return save.flags.includes(requirement);
+    }
+    if (token.kind === "flag") {
+      return save.flags.includes(token.value);
+    }
+    if (token.kind === "item" || token.kind === "resource") {
+      return itemQuantity(save, token.value) > 0;
+    }
+    if (token.kind === "ability") {
+      return save.player.learnedAbilities.includes(token.value);
+    }
+    return false;
+  });
 }
 
 export function collectProgressionSource(

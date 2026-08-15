@@ -4,11 +4,12 @@ import type { ActorState, IntentionalAction } from "../model/save-state";
 import { DIRECTION_DELTA } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
 import { prepareAction, resolveAbilityAction, resolveAttackAction, resolveItemAction } from "./combat";
-import { actorsOnPlane, canOccupy, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, featureRuntimeState, setFeatureRuntimeState } from "./occupancy";
+import { relocateActor } from "./apply-effects";
+import { actorsOnPlane, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, featureRuntimeState, setFeatureRuntimeState } from "./occupancy";
 import { dropInventoryItem, pickupGroundItem } from "./inventory";
 import { applyThrust } from "./space";
 import { applyHazardsAt } from "./hazards";
-import { collectProgressionSource } from "./grants";
+import { collectProgressionSource, progressionRequirementsMet } from "./grants";
 import { openDialogue } from "./dialogue";
 import { maybeStepOnTransition, tryActivateWorldTransition, tryEdgeCross } from "./transitions";
 import type { TickEvent } from "./tick-events";
@@ -51,13 +52,11 @@ export function resolveAction(runtime: GameRuntime, actor: ActorState, action: I
       }
       return [{ type: "action_failed", actorId: actor.id, detail: "blocked" }];
     }
-    if (!canOccupy(plane, save.actors, dest, actor.id, save)) {
+    const events: TickEvent[] = [];
+    if (!relocateActor(save, plane, actor, dest, events, "step")) {
       return [{ type: "action_failed", actorId: actor.id, detail: "blocked" }];
     }
-    actor.x = dest.x;
-    actor.y = dest.y;
-    const events: TickEvent[] = [{ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y }];
-    applyHazardsAt(save, plane, actor, "onEnter", events);
+    events.push({ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y });
     events.push(...maybeStepOnTransition(runtime, actor, true));
     return events;
   }
@@ -116,25 +115,51 @@ function resolveInteract(runtime: GameRuntime, actor: ActorState, action: Intent
     });
     chosenActor = actorTargets.find((row) => row.id === targetId);
   }
+  const events: TickEvent[] = [];
+  const fireInteractHazards = (cell: MapCoordinate): void => {
+    applyHazardsAt(save, plane, actor, "onInteract", events, origin);
+    if (cell.x !== origin.x || cell.y !== origin.y) {
+      applyHazardsAt(save, plane, actor, "onInteract", events, cell);
+    }
+  };
   if (chosenActor) {
-    const events: TickEvent[] = [{ type: "interacted", actorId: actor.id, targetId: chosenActor.id }];
+    fireInteractHazards({ x: chosenActor.x, y: chosenActor.y });
+    events.push({ type: "interacted", actorId: actor.id, targetId: chosenActor.id });
     openDialogue(runtime, chosenActor.id, events);
+    if (chosenActor.kind === "npc") {
+      for (const source of runtime.topology.progressionSources) {
+        if (source.sourceType !== "npc_teaching") {
+          continue;
+        }
+        if (source.plane.a !== plane.plane.a || source.plane.b !== plane.plane.b) {
+          continue;
+        }
+        if (!progressionRequirementsMet(save, source.requirements)) {
+          continue;
+        }
+        collectProgressionSource(save, source, events, { x: actor.x, y: actor.y });
+      }
+    }
     return events;
   }
   if (chosenFeature?.featureId === "transition_fixture") {
-    const events = tryActivateWorldTransition(runtime, actor, chosenFeature.cell, "interact");
-    if (events) {
+    fireInteractHazards(chosenFeature.cell);
+    const activated = tryActivateWorldTransition(runtime, actor, chosenFeature.cell, "interact");
+    if (activated) {
+      events.push(...activated);
       return events;
     }
   }
   if (chosenFeature?.featureId === "safe_anchor") {
+    fireInteractHazards(chosenFeature.cell);
     save.player.safeAnchor = { plane: save.plane, x: chosenFeature.cell.x, y: chosenFeature.cell.y };
     actor.hp = actor.maxHp;
     actor.statuses = actor.statuses.filter((instance) => {
       const def = CONTENT_REGISTRY.byId.status.get(instance.id);
       return def?.clearedOnPlayerDeath === false;
     });
-    return [{ type: "interacted", actorId: actor.id, targetId: "safe_anchor", x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+    events.push({ type: "interacted", actorId: actor.id, targetId: "safe_anchor", x: chosenFeature.cell.x, y: chosenFeature.cell.y });
+    return events;
   }
   if (chosenFeature?.featureId === "door") {
     const current = doorRuntimeState(save, plane, chosenFeature.cell);
@@ -143,23 +168,28 @@ function resolveInteract(runtime: GameRuntime, actor: ActorState, action: Intent
       if (!hasKey) {
         return [{ type: "action_failed", actorId: actor.id, detail: "door locked" }];
       }
+      fireInteractHazards(chosenFeature.cell);
       setFeatureRuntimeState(save, plane.plane, chosenFeature.cell, "open");
-      return [{ type: "door_toggled", actorId: actor.id, targetId: "door", detail: "open", x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+      events.push({ type: "door_toggled", actorId: actor.id, targetId: "door", detail: "open", x: chosenFeature.cell.x, y: chosenFeature.cell.y });
+      return events;
     }
+    fireInteractHazards(chosenFeature.cell);
     const next = current === "open" ? "closed" : "open";
     setFeatureRuntimeState(save, plane.plane, chosenFeature.cell, next);
-    return [{ type: "door_toggled", actorId: actor.id, targetId: "door", detail: next, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+    events.push({ type: "door_toggled", actorId: actor.id, targetId: "door", detail: next, x: chosenFeature.cell.x, y: chosenFeature.cell.y });
+    return events;
   }
   if (chosenFeature && CONTENT_REGISTRY.byId.feature.get(chosenFeature.featureId)?.tags.includes("container")) {
     const opened = featureRuntimeState(save, plane.plane, chosenFeature.cell);
     if (opened === "open") {
       return [{ type: "action_failed", actorId: actor.id, detail: "already opened" }];
     }
+    fireInteractHazards(chosenFeature.cell);
     const source = runtime.topology.progressionSources.find((row) => {
       const point = plane.namedPoints.find((named) => named.id === row.id);
       return point !== undefined && point.x === chosenFeature.cell.x && point.y === chosenFeature.cell.y;
     });
-    const events: TickEvent[] = [{ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+    events.push({ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y });
     if (source) {
       collectProgressionSource(save, source, events, chosenFeature.cell);
     }
@@ -167,12 +197,16 @@ function resolveInteract(runtime: GameRuntime, actor: ActorState, action: Intent
     return events;
   }
   if (chosenFeature) {
-    return [{ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+    fireInteractHazards(chosenFeature.cell);
+    events.push({ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y });
+    return events;
   }
   if (actor.kind === "player") {
     const pickup = pickupGroundItem(runtime, targetId);
     if (!pickup.some((event) => event.type === "action_failed")) {
-      return pickup;
+      fireInteractHazards(origin);
+      events.push(...pickup);
+      return events;
     }
   }
   return [{ type: "action_failed", actorId: actor.id, detail: "no interactable" }];

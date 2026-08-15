@@ -19,10 +19,10 @@ export const PROTECTION_TAGS = [
 
 export const HAZARDS: readonly HazardDefinition[] = [
   { id: "lava", triggers: ["onEnter", "onEndTick"], effectIds: ["damage_fire_5"], protectionTag: "fireProtected", visible: true, consumed: false },
-  { id: "burning_ground", triggers: ["onEnter"], effectIds: ["damage_fire_2", "apply_burning"], protectionTag: "fireProtected", visible: true, consumed: false },
+  { id: "burning_ground", triggers: ["onEnter", "onLeave"], effectIds: ["damage_fire_2", "apply_burning"], protectionTag: "fireProtected", visible: true, consumed: false },
   { id: "poison_ground", triggers: ["onEnter"], effectIds: ["apply_poisoned"], protectionTag: "poisonProtected", visible: true, consumed: false },
-  { id: "spikes", triggers: ["onEnter"], effectIds: ["damage_physical_4"], protectionTag: null, visible: true, consumed: false },
-  { id: "hidden_spikes", triggers: ["onEnter"], effectIds: ["damage_physical_4"], protectionTag: null, visible: false, consumed: true },
+  { id: "spikes", triggers: ["onEnter", "onInteract"], effectIds: ["damage_physical_4"], protectionTag: null, visible: true, consumed: false },
+  { id: "hidden_spikes", triggers: ["onEnter", "onInteract"], effectIds: ["damage_physical_4"], protectionTag: null, visible: false, consumed: true },
   { id: "arcane_field", triggers: ["onEndTick"], effectIds: ["damage_arcane_3"], protectionTag: null, visible: true, consumed: false },
   { id: "spectral_field", triggers: ["onEndTick"], effectIds: ["damage_ethereal_3"], protectionTag: "etherealProtected", visible: true, consumed: false },
   { id: "vacuum", triggers: ["onEndTick"], effectIds: ["damage_environmental_3"], protectionTag: "vacuumProtected", visible: true, consumed: false },

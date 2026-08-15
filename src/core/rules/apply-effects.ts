@@ -1,16 +1,26 @@
 import { CONTENT_REGISTRY } from "../data/registry";
+import { chebyshev } from "../generation/grid";
 import { compareStableIds } from "../generation/semantic-random";
 import type { PlaneBase } from "../generation/plane-types";
 import type { AtomicEffect } from "../model/content-types";
 import type { MapCoordinate } from "../model/plane";
 import { planesEqual } from "../model/plane";
 import type { ActorState, Direction, SaveState, StatusInstance } from "../model/save-state";
-import { actorIsHidden, flatArmour, resistanceFor, syncDerivedMaxHp } from "./actor-stats";
-import { resolveFlatDamage } from "./combat-math";
+import { actorIsHidden, syncDerivedMaxHp } from "./actor-stats";
+import {
+  applyHeal,
+  applyHpDamage,
+  applyStaticEffect,
+  applyStatus,
+  expandEffectIds,
+  removeStatus,
+} from "./effect-core";
+import { applyHazardsAt } from "./hazards";
 import { canOccupy, destinationCell } from "./occupancy";
 import type { TickEvent } from "./tick-events";
 
 export type { TickEvent } from "./tick-events";
+export { applyHeal, applyHpDamage, applyStatus, expandEffectIds, removeStatus };
 
 function orthogonalDelta(from: MapCoordinate, source: MapCoordinate, mode: "push" | "pull"): MapCoordinate | null {
   const dx = mode === "push" ? from.x - source.x : source.x - from.x;
@@ -24,75 +34,6 @@ function orthogonalDelta(from: MapCoordinate, source: MapCoordinate, mode: "push
   return { x: 0, y: Math.sign(dy) };
 }
 
-export function applyHeal(actor: ActorState, amount: number, events: TickEvent[]): void {
-  const before = actor.hp;
-  actor.hp = Math.min(actor.maxHp, actor.hp + amount);
-  if (actor.hp !== before) {
-    events.push({ type: "healed", actorId: actor.id, amount: actor.hp - before });
-  }
-}
-
-export function applyHpDamage(actor: ActorState, amount: number, events: TickEvent[], damageType?: string): void {
-  if (amount <= 0) {
-    return;
-  }
-  actor.hp -= amount;
-  events.push(
-    damageType
-      ? { type: "damage_taken", actorId: actor.id, amount, detail: damageType }
-      : { type: "damage_taken", actorId: actor.id, amount },
-  );
-}
-
-export function applyStatus(
-  actor: ActorState,
-  statusId: string,
-  sourceId: string | null,
-  events: TickEvent[],
-): void {
-  const def = CONTENT_REGISTRY.byId.status.get(statusId);
-  if (!def) {
-    return;
-  }
-  for (const instance of actor.statuses) {
-    const existing = CONTENT_REGISTRY.byId.status.get(instance.id);
-    if (existing?.immuneToStatusIds.includes(statusId)) {
-      return;
-    }
-  }
-  const found = actor.statuses.find((row) => row.id === statusId);
-  if (found) {
-    found.remainingTicks = def.durationTicks;
-    found.sourceId = sourceId ?? found.sourceId;
-    events.push(
-      sourceId
-        ? { type: "status_applied", actorId: actor.id, detail: statusId, targetId: sourceId }
-        : { type: "status_applied", actorId: actor.id, detail: statusId },
-    );
-    return;
-  }
-  const instance: StatusInstance = {
-    id: statusId,
-    remainingTicks: def.durationTicks,
-    sourceId,
-  };
-  actor.statuses.push(instance);
-  actor.statuses.sort((left, right) => compareStableIds(left.id, right.id));
-  events.push(
-    sourceId
-      ? { type: "status_applied", actorId: actor.id, detail: statusId, targetId: sourceId }
-      : { type: "status_applied", actorId: actor.id, detail: statusId },
-  );
-}
-
-export function removeStatus(actor: ActorState, statusId: string, events: TickEvent[]): void {
-  const before = actor.statuses.length;
-  actor.statuses = actor.statuses.filter((row) => row.id !== statusId);
-  if (actor.statuses.length !== before) {
-    events.push({ type: "status_removed", actorId: actor.id, detail: statusId });
-  }
-}
-
 export function breakHiddenOnHostile(actor: ActorState, events: TickEvent[]): void {
   for (const instance of [...actor.statuses]) {
     const def = CONTENT_REGISTRY.byId.status.get(instance.id);
@@ -100,6 +41,28 @@ export function breakHiddenOnHostile(actor: ActorState, events: TickEvent[]): vo
       removeStatus(actor, instance.id, events);
     }
   }
+}
+
+export function relocateActor(
+  save: SaveState,
+  plane: PlaneBase,
+  actor: ActorState,
+  dest: MapCoordinate,
+  events: TickEvent[],
+  mode: "step" | "teleport",
+): boolean {
+  if (actor.x === dest.x && actor.y === dest.y) {
+    return true;
+  }
+  if (!canOccupy(plane, save.actors, dest, actor.id, save)) {
+    return false;
+  }
+  applyHazardsAt(save, plane, actor, "onLeave", events);
+  actor.x = dest.x;
+  actor.y = dest.y;
+  applyHazardsAt(save, plane, actor, "onEnter", events);
+  void mode;
+  return true;
 }
 
 export function forcedMove(
@@ -121,10 +84,36 @@ export function forcedMove(
       events.push({ type: "forced_move_blocked", actorId: mover.id, x: mover.x, y: mover.y });
       return;
     }
-    mover.x = dest.x;
-    mover.y = dest.y;
+    if (!relocateActor(save, plane, mover, dest, events, "step")) {
+      events.push({ type: "forced_move_blocked", actorId: mover.id, x: mover.x, y: mover.y });
+      return;
+    }
     events.push({ type: "forced_moved", actorId: mover.id, x: dest.x, y: dest.y });
   }
+}
+
+export function teleportWithinPlane(
+  save: SaveState,
+  plane: PlaneBase,
+  actor: ActorState,
+  dest: MapCoordinate,
+  range: number,
+  events: TickEvent[],
+): boolean {
+  if (chebyshev(actor, dest) > range) {
+    events.push({ type: "action_failed", actorId: actor.id, detail: "teleport range" });
+    return false;
+  }
+  if (!canOccupy(plane, save.actors, dest, actor.id, save)) {
+    events.push({ type: "action_failed", actorId: actor.id, detail: "teleport blocked" });
+    return false;
+  }
+  if (!relocateActor(save, plane, actor, dest, events, "teleport")) {
+    events.push({ type: "action_failed", actorId: actor.id, detail: "teleport blocked" });
+    return false;
+  }
+  events.push({ type: "teleported", actorId: actor.id, x: dest.x, y: dest.y });
+  return true;
 }
 
 export function applyAtomicEffect(
@@ -134,63 +123,28 @@ export function applyAtomicEffect(
   target: ActorState,
   source: ActorState | null,
   events: TickEvent[],
+  destination?: MapCoordinate,
 ): void {
-  switch (effect.kind) {
-    case "heal":
-      applyHeal(target, effect.amount ?? 0, events);
-      return;
-    case "damage": {
-      const damageType = effect.damageType ?? "physical";
-      const amount = resolveFlatDamage(
-        effect.amount ?? 0,
-        resistanceFor(save, target, damageType),
-        flatArmour(save, target, damageType),
-      );
-      applyHpDamage(target, amount, events, damageType);
-      if (source?.kind === "player") {
-        target.lastAffectedTick = save.tick;
-      }
-      return;
+  if (applyStaticEffect(save, effect, target, source, events)) {
+    return;
+  }
+  if (effect.kind === "forcedMove") {
+    if (source) {
+      forcedMove(save, plane, target, source, effect.amount ?? 1, effect.moveMode ?? "push", events);
     }
-    case "applyStatus":
-      if (effect.statusId) {
-        applyStatus(target, effect.statusId, source?.id ?? null, events);
-      }
-      return;
-    case "removeStatus":
-      if (effect.statusId) {
-        removeStatus(target, effect.statusId, events);
-      }
-      return;
-    case "forcedMove":
-      if (source) {
-        forcedMove(save, plane, target, source, effect.amount ?? 1, effect.moveMode ?? "push", events);
-      }
-      return;
-    case "teleportWithinPlane":
-    case "clearVelocity":
-    case "revealTiles":
-    case "extraActionOnce":
-      events.push({ type: "effect_deferred", actorId: target.id, detail: effect.kind });
-      return;
-    default:
-      return;
+    return;
   }
-}
-
-export function expandEffectIds(id: string): AtomicEffect[] {
-  const atomic = CONTENT_REGISTRY.byId.effect.get(id);
-  if (atomic) {
-    return [atomic];
+  if (effect.kind === "teleportWithinPlane") {
+    if (destination) {
+      teleportWithinPlane(save, plane, target, destination, effect.amount ?? 0, events);
+    } else {
+      events.push({ type: "action_failed", actorId: target.id, detail: "teleport destination" });
+    }
+    return;
   }
-  const bundle = CONTENT_REGISTRY.byId.bundle.get(id);
-  if (!bundle) {
-    return [];
+  if (effect.kind === "clearVelocity" || effect.kind === "revealTiles" || effect.kind === "extraActionOnce") {
+    events.push({ type: "effect_deferred", actorId: target.id, detail: effect.kind });
   }
-  return bundle.effectIds.flatMap((effectId) => {
-    const row = CONTENT_REGISTRY.byId.effect.get(effectId);
-    return row ? [row] : [];
-  });
 }
 
 export function applyEffectIds(
@@ -200,10 +154,11 @@ export function applyEffectIds(
   target: ActorState,
   source: ActorState | null,
   events: TickEvent[],
+  destination?: MapCoordinate,
 ): void {
   for (const id of ids) {
     for (const effect of expandEffectIds(id)) {
-      applyAtomicEffect(save, plane, effect, target, source, events);
+      applyAtomicEffect(save, plane, effect, target, source, events, destination);
     }
   }
 }

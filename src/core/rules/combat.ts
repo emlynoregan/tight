@@ -385,7 +385,9 @@ export function resolveAbilityAction(
     startCooldown(actor, attack.id, attack.cooldown, save.tick);
   } else {
     breakHiddenOnHostile(actor, events);
-    applyEffectIds(save, plane, extra, actor, actor, events);
+    const destination =
+      action.targetX !== undefined && action.targetY !== undefined ? { x: action.targetX, y: action.targetY } : undefined;
+    applyEffectIds(save, plane, extra, actor, actor, events, destination);
   }
   startCooldown(actor, ability.id, ability.cooldown, save.tick);
   return events;
