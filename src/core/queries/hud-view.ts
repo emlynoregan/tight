@@ -144,8 +144,18 @@ export function getHudView(runtime: GameRuntime, messages: readonly string[] = [
     "Space/. wait",
     canInteract ? "E interact" : "E interact (nothing adjacent)",
     canAttack ? `F attack (${attackId})` : "F attack (need adjacent foe)",
-    "G pick up  I inventory  C character  L map key  J quests",
-    save.modal === "victory" ? "Continue or start a New Game" : save.modal === "confirm-new-game" ? "Confirm New Game or cancel" : save.modal ? "Esc close modal" : null,
+    "G pick up  I inventory  C character  L map key  J quests  O settings",
+    save.modal === "victory"
+      ? "Continue or start a New Game"
+      : save.modal === "confirm-new-game"
+        ? "Confirm New Game or cancel"
+        : save.modal === "confirm-import"
+          ? "Confirm import or cancel"
+          : save.modal === "settings"
+            ? "Esc close settings"
+            : save.modal
+              ? "Esc close modal"
+              : "Esc or O opens settings",
   ].filter((row): row is string => row !== null);
   return {
     hp: player.hp,

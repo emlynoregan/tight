@@ -1,5 +1,6 @@
 import {
   applyPlayerCommand,
+  CONTENT_REGISTRY,
   createAcceptedWorldCache,
   createNewGame,
   createRuntimeFromSaveRecord,
@@ -14,19 +15,33 @@ import {
   getVisiblePlaneView,
   advanceTick,
   makeSaveRecord,
+  OLYMPUS_PLANE,
+  parseSaveJson,
+  playerActor,
+  switchCurrentPlane,
   validateSaveRecord,
   type CommandResult,
   type GameRuntime,
   type HudView,
   type PlayerCommand,
+  type SaveRecord,
   type TickResult,
 } from "../core";
 import { CORE_IDENTITY } from "../core/identity";
+import { planeKey } from "../core/model/plane";
 import type { InputIntent } from "../input/input-map";
 import { PresentationFacade, ProceduralAudioProvider, ProceduralVisualProvider } from "../presentation";
-import { MemoryPersistence, PersistenceQueue, type Persistence } from "../persistence";
+import {
+  defaultPreferences,
+  MemoryPersistence,
+  normalizePreferences,
+  PersistenceQueue,
+  type Persistence,
+  type StoredPreferences,
+} from "../persistence";
 import { playTickAudio } from "./audio-cues";
-import { planeKey } from "../core/model/plane";
+import { APP_VERSION } from "./build-info";
+import { diagnosticsFromRuntime, type GameDiagnostics } from "./diagnostics";
 
 export interface GameSnapshot {
   readonly plane: ReturnType<typeof getVisiblePlaneView>;
@@ -36,6 +51,23 @@ export interface GameSnapshot {
   readonly dialogue: ReturnType<typeof getDialogueView>;
   readonly shop: ReturnType<typeof getShopView>;
   readonly quests: ReturnType<typeof getQuestLogView>;
+  readonly settings: SettingsView;
+}
+
+export interface SettingsView {
+  readonly worldSeed: string;
+  readonly generatorVersion: string;
+  readonly appVersion: string;
+  readonly topologyHash: string;
+  readonly plane: string;
+  readonly tick: number;
+  readonly audioEnabled: boolean;
+  readonly reducedShake: boolean;
+  readonly reducedFlash: boolean;
+  readonly persistError: string | null;
+  readonly storageWarning: string | null;
+  readonly pendingNewGameSeed: string | null;
+  readonly pendingImportSeed: string | null;
 }
 
 export interface GameControllerOptions {
@@ -43,9 +75,15 @@ export interface GameControllerOptions {
   readonly presentation?: PresentationFacade;
   readonly persistence?: Persistence;
   readonly runtime?: GameRuntime;
+  readonly prefersReducedMotion?: boolean;
+  readonly storageWarning?: string | null;
 }
 
 const MAX_MESSAGES = 12;
+
+function fail(message: string): CommandResult {
+  return { ok: false, code: "rejected", message };
+}
 
 export class GameController {
   readonly presentation: PresentationFacade;
@@ -53,6 +91,12 @@ export class GameController {
   readonly queue: PersistenceQueue;
   runtime: GameRuntime;
   audioArmed = false;
+  prefs: StoredPreferences;
+  persistError: string | null = null;
+  readonly storageWarning: string | null;
+  pendingNewGameSeed: string | null = null;
+  pendingReturnModal: string | null = null;
+  pendingImport: SaveRecord | null = null;
   private messages: string[] = [];
   private lastEvents: TickResult["events"] = [];
   private musicKey: string | null = null;
@@ -60,19 +104,23 @@ export class GameController {
   constructor(options: GameControllerOptions = {}) {
     this.presentation = options.presentation ?? new PresentationFacade(new ProceduralVisualProvider(), new ProceduralAudioProvider());
     this.persistence = options.persistence ?? new MemoryPersistence();
-    this.queue = new PersistenceQueue(this.persistence);
+    this.queue = new PersistenceQueue(this.persistence, (error) => {
+      this.persistError = error instanceof Error ? error.message : "Save could not be written.";
+    });
     this.runtime = options.runtime ?? createNewGame(CORE_IDENTITY.generatorVersion, options.seed ?? "0", {
       cache: createAcceptedWorldCache(),
     });
+    this.prefs = defaultPreferences(options.prefersReducedMotion === true);
+    this.storageWarning = options.storageWarning ?? null;
+    this.presentation.setAudioPreferences(this.prefs.audio);
   }
 
   static async open(options: GameControllerOptions & { readonly forceNew?: boolean } = {}): Promise<GameController> {
     const persistence = options.persistence ?? new MemoryPersistence();
     const presentation = options.presentation ?? new PresentationFacade(new ProceduralVisualProvider(), new ProceduralAudioProvider());
-    const prefs = await persistence.getPreferences();
-    if (prefs) {
-      presentation.setAudioPreferences(prefs.audio);
-    }
+    const prefersReducedMotion = options.prefersReducedMotion === true;
+    const storedPrefs = normalizePreferences(await persistence.getPreferences(), prefersReducedMotion);
+    presentation.setAudioPreferences(storedPrefs.audio);
     if (!options.forceNew) {
       const stored = await persistence.getSave();
       if (stored) {
@@ -84,21 +132,42 @@ export class GameController {
         if (!loaded.ok) {
           throw new Error(`${loaded.code}: ${loaded.message}`);
         }
-        return new GameController({ presentation, persistence, runtime: loaded.runtime });
+        const controller = new GameController({
+          presentation,
+          persistence,
+          runtime: loaded.runtime,
+          prefersReducedMotion,
+          ...(options.storageWarning !== undefined ? { storageWarning: options.storageWarning } : {}),
+        });
+        controller.prefs = storedPrefs;
+        controller.presentation.setAudioPreferences(storedPrefs.audio);
+        return controller;
       }
     }
     const controller = new GameController({
       presentation,
       persistence,
+      prefersReducedMotion,
       ...(options.seed !== undefined ? { seed: options.seed } : {}),
+      ...(options.storageWarning !== undefined ? { storageWarning: options.storageWarning } : {}),
     });
+    controller.prefs = storedPrefs;
+    controller.presentation.setAudioPreferences(storedPrefs.audio);
     await controller.persist();
+    await controller.persistPreferences();
     return controller;
   }
 
   command(command: PlayerCommand): CommandResult {
+    if (command.type === "closeModal" && this.isConfirmModal() && this.pendingReturnModal !== null) {
+      this.runtime.save.modal = this.pendingReturnModal === "" ? null : this.pendingReturnModal;
+      this.clearPendingLifecycle();
+      void this.persist();
+      return { ok: true };
+    }
     if (command.type === "newGame" && this.runtime.save.modal === "confirm-new-game") {
-      this.resetToNewGame();
+      this.resetToNewGame(this.pendingNewGameSeed ?? this.runtime.save.worldSeed);
+      this.clearPendingLifecycle();
       void this.persist();
       return { ok: true };
     }
@@ -117,7 +186,16 @@ export class GameController {
       return this.command({ type: "setHeldDirection", direction: null });
     }
     if (intent.type === "closeModal") {
-      return this.command({ type: "closeModal" });
+      if (this.runtime.save.modal) {
+        return this.command({ type: "closeModal" });
+      }
+      return this.command({ type: "openModal", modal: "settings" });
+    }
+    if (intent.type === "settings") {
+      if (this.runtime.save.modal === "settings") {
+        return this.command({ type: "closeModal" });
+      }
+      return this.command({ type: "openModal", modal: "settings" });
     }
     if (intent.type === "inventory") {
       return this.command({ type: "openModal", modal: "inventory" });
@@ -153,6 +231,80 @@ export class GameController {
     return null;
   }
 
+  requestNewGame(seed: string): CommandResult {
+    const trimmed = seed.trim();
+    if (!trimmed) {
+      return fail("seed is required");
+    }
+    this.pendingNewGameSeed = trimmed;
+    if (this.runtime.save.modal === "victory") {
+      this.pendingReturnModal = "victory";
+      return this.command({ type: "newGame" });
+    }
+    this.pendingReturnModal = this.runtime.save.modal ?? "";
+    this.runtime.save.modal = "confirm-new-game";
+    return { ok: true };
+  }
+
+  exportSaveJson(): string {
+    return JSON.stringify(makeSaveRecord(this.runtime.save, new Date().toISOString()), null, 2);
+  }
+
+  requestImport(text: string): CommandResult {
+    const parsed = parseSaveJson(text);
+    if (!parsed.ok) {
+      return fail(`${parsed.code}: ${parsed.message}`);
+    }
+    const loaded = createRuntimeFromSaveRecord(parsed.record, { cache: createAcceptedWorldCache() });
+    if (!loaded.ok) {
+      return fail(`${loaded.code}: ${loaded.message}`);
+    }
+    this.pendingImport = parsed.record;
+    this.pendingReturnModal = this.runtime.save.modal ?? "settings";
+    this.runtime.save.modal = "confirm-import";
+    return { ok: true };
+  }
+
+  confirmImport(): CommandResult {
+    if (!this.pendingImport) {
+      return fail("no imported save waiting");
+    }
+    const loaded = createRuntimeFromSaveRecord(this.pendingImport, { cache: createAcceptedWorldCache() });
+    if (!loaded.ok) {
+      return fail(`${loaded.code}: ${loaded.message}`);
+    }
+    this.runtime = loaded.runtime;
+    this.messages = [];
+    this.lastEvents = [];
+    this.musicKey = null;
+    this.clearPendingLifecycle();
+    if (this.audioArmed) {
+      this.syncMusic(true);
+    }
+    void this.persist();
+    return { ok: true };
+  }
+
+  async setPreferences(patch: Partial<StoredPreferences> & { readonly audioEnabled?: boolean }): Promise<void> {
+    const audio = {
+      ...this.prefs.audio,
+      ...(patch.audio ?? {}),
+      ...(patch.audioEnabled !== undefined ? { enabled: patch.audioEnabled } : {}),
+    };
+    this.prefs = {
+      audio,
+      reducedShake: patch.reducedShake ?? this.prefs.reducedShake,
+      reducedFlash: patch.reducedFlash ?? this.prefs.reducedFlash,
+    };
+    this.presentation.setAudioPreferences(this.prefs.audio);
+    if (!this.prefs.audio.enabled) {
+      this.presentation.stopMusic();
+    } else if (this.audioArmed) {
+      this.syncMusic(true);
+    }
+    await this.persistPreferences();
+  }
+
   tick(): TickResult {
     const result = advanceTick(this.runtime);
     this.lastEvents = result.events;
@@ -178,15 +330,54 @@ export class GameController {
   async resumeAudio(): Promise<void> {
     await this.presentation.resume();
     this.audioArmed = true;
-    this.syncMusic(true);
+    if (this.prefs.audio.enabled) {
+      this.syncMusic(true);
+    }
   }
 
   async persist(): Promise<void> {
-    await this.queue.enqueue(makeSaveRecord(this.runtime.save, new Date().toISOString()));
+    try {
+      await this.queue.enqueue(makeSaveRecord(this.runtime.save, new Date().toISOString()));
+      this.persistError = null;
+    } catch (error) {
+      this.persistError = error instanceof Error ? error.message : "Save could not be written.";
+    }
+  }
+
+  async persistPreferences(): Promise<void> {
+    try {
+      await this.persistence.putPreferences(this.prefs);
+    } catch (error) {
+      this.persistError = error instanceof Error ? error.message : "Preferences could not be written.";
+    }
   }
 
   async clearGenerationCache(): Promise<void> {
     await this.persistence.clearCache();
+  }
+
+  diagnostics(errorCode = "OK", errorMessage = ""): GameDiagnostics {
+    return diagnosticsFromRuntime(this.runtime, errorCode, errorMessage);
+  }
+
+  debugDefeatOlympus(): TickResult {
+    const plane = switchCurrentPlane(this.runtime, OLYMPUS_PLANE);
+    if (!plane) {
+      throw new Error("UNREALIZABLE_PLANE: olympus could not be loaded");
+    }
+    const player = playerActor(this.runtime);
+    player.plane = { ...OLYMPUS_PLANE };
+    const entry = plane.namedPoints.find((point) => point.kind === "playerEntry") ?? plane.namedPoints[0];
+    if (entry) {
+      player.x = entry.x;
+      player.y = entry.y;
+    }
+    const boss = this.runtime.save.actors.find((actor) => actor.id === CONTENT_REGISTRY.victory.actorId);
+    if (!boss) {
+      throw new Error("INVALID_SAVE: olympus boss missing");
+    }
+    boss.hp = 0;
+    return this.tick();
   }
 
   snapshot(): GameSnapshot {
@@ -198,23 +389,52 @@ export class GameController {
       dialogue: getDialogueView(this.runtime),
       shop: getShopView(this.runtime),
       quests: getQuestLogView(this.runtime),
+      settings: {
+        worldSeed: this.runtime.save.worldSeed,
+        generatorVersion: this.runtime.save.generatorVersion,
+        appVersion: APP_VERSION,
+        topologyHash: this.runtime.save.topologyHash,
+        plane: planeKey(this.runtime.save.plane),
+        tick: this.runtime.save.tick,
+        audioEnabled: this.prefs.audio.enabled,
+        reducedShake: this.prefs.reducedShake,
+        reducedFlash: this.prefs.reducedFlash,
+        persistError: this.persistError,
+        storageWarning: this.storageWarning,
+        pendingNewGameSeed: this.pendingNewGameSeed,
+        pendingImportSeed: this.pendingImport?.worldSeed ?? null,
+      },
     };
   }
 
-  private resetToNewGame(): void {
-    const seed = this.runtime.save.worldSeed;
+  private isConfirmModal(): boolean {
+    return this.runtime.save.modal === "confirm-new-game" || this.runtime.save.modal === "confirm-import";
+  }
+
+  private clearPendingLifecycle(): void {
+    this.pendingNewGameSeed = null;
+    this.pendingReturnModal = null;
+    this.pendingImport = null;
+  }
+
+  private resetToNewGame(seed: string): void {
     this.runtime = createNewGame(CORE_IDENTITY.generatorVersion, seed, {
       cache: createAcceptedWorldCache(),
     });
     this.messages = [];
     this.lastEvents = [];
     this.musicKey = null;
-    if (this.audioArmed) {
+    if (this.audioArmed && this.prefs.audio.enabled) {
       this.syncMusic(true);
     }
   }
 
   private syncMusic(force = false): void {
+    if (!this.prefs.audio.enabled) {
+      this.presentation.stopMusic();
+      this.musicKey = null;
+      return;
+    }
     const key = planeKey(this.runtime.save.plane);
     if (!force && key === this.musicKey) {
       return;

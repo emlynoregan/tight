@@ -15,10 +15,15 @@ export function renderHud(shell: ShellElements, hud: HudView, facade: Presentati
     ...hud.gems.map((gem) => {
       const wrap = document.createElement("span");
       wrap.className = `gem gem-${gem.state}`;
+      wrap.setAttribute("role", "img");
+      wrap.setAttribute("aria-label", `${gem.name}, ${gem.state}`);
       wrap.title = `${gem.name} (${gem.state})`;
       wrap.innerHTML = svgMarkup(facade, gemKey(gem.dimension, gem.state));
+      const svg = wrap.querySelector("svg");
+      svg?.setAttribute("aria-hidden", "true");
       const label = document.createElement("span");
       label.className = "gem-label";
+      label.setAttribute("aria-hidden", "true");
       label.textContent = String(gem.dimension);
       wrap.append(label);
       return wrap;
@@ -41,4 +46,15 @@ export function renderHud(shell: ShellElements, hud: HudView, facade: Presentati
       return row;
     }),
   );
+}
+
+export function renderBanner(shell: ShellElements, persistError: string | null, storageWarning: string | null): void {
+  const text = persistError ?? storageWarning;
+  if (!text) {
+    shell.banner.hidden = true;
+    shell.banner.textContent = "";
+    return;
+  }
+  shell.banner.hidden = false;
+  shell.banner.textContent = persistError ? `Save failed: ${persistError}` : text;
 }

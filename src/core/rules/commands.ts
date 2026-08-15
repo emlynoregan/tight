@@ -27,7 +27,7 @@ export type CommandResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: "rejected"; readonly message: string };
 
-const LIFECYCLE_MODALS = new Set(["victory", "confirm-new-game"]);
+const LIFECYCLE_MODALS = new Set(["victory", "confirm-new-game", "confirm-import"]);
 
 function isDirection(value: string | undefined): value is Direction {
   return value !== undefined && (DIRECTIONS as readonly string[]).includes(value);

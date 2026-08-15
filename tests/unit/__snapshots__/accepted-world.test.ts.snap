@@ -1,0 +1,70 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`headless seed sweep > accepts 8 deterministic seeds 1`] = `
+[
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 116,
+    "rejectedAttemptCount": 0,
+    "seed": "0",
+    "topologyHash": "ca58a14df09cfe39d90fa1f4e47344a80a3671b3fda85408e9ebb9972b21b708",
+    "witnessLength": 392,
+  },
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 115,
+    "rejectedAttemptCount": 0,
+    "seed": "1",
+    "topologyHash": "459de820a3c65be611f372c95d61905250cd06b1ba17a1f598144e9a4495d7c5",
+    "witnessLength": 371,
+  },
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 117,
+    "rejectedAttemptCount": 0,
+    "seed": "sweep-2",
+    "topologyHash": "8f6f6ee8d927a1268edcb16fd50ecfaf1423d29550354f29b3260ce73e3a1c88",
+    "witnessLength": 425,
+  },
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 112,
+    "rejectedAttemptCount": 0,
+    "seed": "sweep-3",
+    "topologyHash": "0e8fe9855a3d9ca5f6491193e04d6e57ffd8d25307eaab2c3012baf8606984d9",
+    "witnessLength": 380,
+  },
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 113,
+    "rejectedAttemptCount": 0,
+    "seed": "sweep-4",
+    "topologyHash": "1b63f1b4e0e9f63d96870c0fc445a9416975d83c78995ee964f8f76a77902eaf",
+    "witnessLength": 397,
+  },
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 118,
+    "rejectedAttemptCount": 0,
+    "seed": "sweep-5",
+    "topologyHash": "2c3c91081c7c87730942119f8c380bf8d760f72c3a3be6ad93af621a71b14f55",
+    "witnessLength": 389,
+  },
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 103,
+    "rejectedAttemptCount": 0,
+    "seed": "sweep-6",
+    "topologyHash": "eb8a4ca00e4f5002bf94b86fa4956cd41662fdf1d54ecb5ed4a25cf7e62819a1",
+    "witnessLength": 326,
+  },
+  {
+    "acceptedAttempt": 0,
+    "preflightPlaneCount": 111,
+    "rejectedAttemptCount": 0,
+    "seed": "sweep-7",
+    "topologyHash": "1dbe68d5d0bc963d760f7b67fdf2a43152ebc89da689092a603347b1bb2dcea2",
+    "witnessLength": 360,
+  },
+]
+`;

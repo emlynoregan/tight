@@ -31,6 +31,9 @@ export class KeyboardAdapter {
   }
 
   private handleKeydown(event: KeyboardEvent): void {
+    if (isEditableTarget(event.target) && event.code !== "Escape") {
+      return;
+    }
     if (!GAME_KEY_CODES.has(event.code)) {
       return;
     }
@@ -48,6 +51,9 @@ export class KeyboardAdapter {
   }
 
   private handleKeyup(event: KeyboardEvent): void {
+    if (isEditableTarget(event.target)) {
+      return;
+    }
     const direction = directionForCode(event.code);
     if (!direction) {
       return;
@@ -71,4 +77,15 @@ export class KeyboardAdapter {
     next.push(direction);
     this.held.splice(0, this.held.length, ...next);
   }
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }

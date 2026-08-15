@@ -11,6 +11,7 @@ export type InputIntent =
   | { readonly type: "character" }
   | { readonly type: "legend" }
   | { readonly type: "questLog" }
+  | { readonly type: "settings" }
   | { readonly type: "closeModal" };
 
 const DIRECTION_BY_CODE: Record<string, Direction> = {
@@ -63,6 +64,9 @@ export function mapKeydown(code: string, repeat: boolean): InputIntent | null {
   if (code === "KeyJ") {
     return { type: "questLog" };
   }
+  if (code === "KeyO") {
+    return { type: "settings" };
+  }
   if (code === "Escape") {
     return { type: "closeModal" };
   }
@@ -95,5 +99,6 @@ export const GAME_KEY_CODES = new Set([
   "KeyC",
   "KeyL",
   "KeyJ",
+  "KeyO",
   "Escape",
 ]);

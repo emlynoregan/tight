@@ -157,6 +157,77 @@
   margin: 0 0.25rem 0.25rem 0;
 }
 
+.tight-banner {
+  background: #3a2020;
+  border: 1px solid #a44;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.tight-settings-btn {
+  margin-left: auto;
+}
+
+.tight-warn {
+  color: #f0c0a0;
+}
+
+.tight-modal label {
+  display: block;
+  margin: 0.4rem 0;
+}
+
+.tight-modal input[type="text"] {
+  width: min(100%, 18rem);
+  margin-left: 0.4rem;
+}
+
+.tight-error {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 1rem;
+  color: #e8e4d8;
+}
+
+.tight-error dl {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 0.35rem 0.75rem;
+}
+
+.tight-error dt {
+  opacity: 0.75;
+}
+
+.tight-touch {
+  display: none;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tight-touch-pad,
+.tight-touch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tight-touch-pad {
+  flex-direction: column;
+  align-items: center;
+}
+
+.tight-touch-mid {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.tight-touch button {
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+}
+
 @media (max-width: 820px) {
   .tight-main {
     grid-template-columns: 1fr;
@@ -171,5 +242,24 @@
   .tight-world-host canvas {
     width: 100%;
     height: auto;
+  }
+
+  .tight-touch {
+    display: flex;
+  }
+}
+
+@media (pointer: coarse) {
+  .tight-touch {
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tight-root *,
+  .tight-root *::before,
+  .tight-root *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }

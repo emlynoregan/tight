@@ -37,6 +37,8 @@ function lerp(from: number, to: number, t: number): number {
 
 export class WorldRenderer {
   readonly app: Application;
+  reducedShake = false;
+  reducedFlash = false;
   private readonly presentation: PresentationFacade;
   private readonly registry = new SpriteRegistry();
   private readonly layers = {
@@ -244,7 +246,7 @@ export class WorldRenderer {
       }
       const x = lerp(tracked.fromX, tracked.tileX, slide) * TILE_SIZE;
       const y = lerp(tracked.fromY, tracked.tileY, slide) * TILE_SIZE;
-      applyAnimation(tracked, x, y, now);
+      applyAnimation(tracked, x, y, now, this.reducedShake, this.reducedFlash);
     }
     for (const [id, tracked] of store) {
       if (live.has(id)) {
@@ -297,7 +299,14 @@ export class WorldRenderer {
   }
 }
 
-function applyAnimation(tracked: TrackedSprite, x: number, y: number, now: number): void {
+function applyAnimation(
+  tracked: TrackedSprite,
+  x: number,
+  y: number,
+  now: number,
+  reducedShake: boolean,
+  reducedFlash: boolean,
+): void {
   const sprite = tracked.sprite;
   sprite.x = x;
   sprite.y = y;
@@ -306,10 +315,17 @@ function applyAnimation(tracked: TrackedSprite, x: number, y: number, now: numbe
   sprite.scale.set(1);
   sprite.width = TILE_SIZE;
   sprite.height = TILE_SIZE;
+  let kind = tracked.animation;
+  if (reducedFlash && (kind === "flash" || kind === "pulse")) {
+    kind = "none";
+  }
+  if (reducedShake && kind === "jitter") {
+    kind = "none";
+  }
   const period = Math.max(1, tracked.periodMs);
   const t = (now % period) / period;
   const wave = Math.sin(t * Math.PI * 2);
-  switch (tracked.animation) {
+  switch (kind) {
     case "bob":
       sprite.y = y + wave * tracked.amplitude;
       break;

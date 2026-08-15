@@ -11,13 +11,16 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed-sweep": "vitest run tests/unit/accepted-world.test.ts -t \"headless seed sweep\""
+    "test:browser": "npm run build && playwright test",
+    "seed-sweep": "vitest run tests/unit/accepted-world.test.ts -t \"headless seed sweep\"",
+    "seed-sweep:large": "vitest run tests/unit/accepted-world.test.ts -t \"headless seed sweep\""
   },
   "dependencies": {
     "idb": "^8.0.3",
     "pixi.js": "^8.14.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.3",

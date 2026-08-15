@@ -261,5 +261,6 @@ describe("input mapping", () => {
     expect(mapKeydown("KeyC", false)).toEqual({ type: "character" });
     expect(mapKeydown("KeyL", false)).toEqual({ type: "legend" });
     expect(mapKeydown("KeyG", false)).toEqual({ type: "pickup" });
+    expect(mapKeydown("KeyO", false)).toEqual({ type: "settings" });
   });
 });

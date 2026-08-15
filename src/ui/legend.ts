@@ -171,7 +171,7 @@ export function legendMarkup(plane: PlaneView, facade: PresentationFacade): stri
     })
     .join("");
   return `
-    <h2>Map key</h2>
+    <h2 id="tight-modal-title">Map key</h2>
     <p>Placeholder icons on this plane. These will be replaced by real art later. Esc closes.</p>
     <ul class="tight-legend">${rows}</ul>
     <button type="button" data-cmd="close">Close</button>

@@ -60,9 +60,25 @@ export class IdbPersistence implements Persistence {
   }
 }
 
-export async function createPersistence(): Promise<Persistence> {
+export interface PersistenceOpenResult {
+  readonly persistence: Persistence;
+  readonly warning: string | null;
+}
+
+export async function createPersistence(): Promise<PersistenceOpenResult> {
   if (typeof indexedDB === "undefined") {
-    return new MemoryPersistence();
+    return {
+      persistence: new MemoryPersistence(),
+      warning: "This browser has no IndexedDB. Progress will not survive a reload.",
+    };
   }
-  return IdbPersistence.open();
+  try {
+    return { persistence: await IdbPersistence.open(), warning: null };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown storage error";
+    return {
+      persistence: new MemoryPersistence(),
+      warning: `IndexedDB could not be opened (${detail}). Progress will not survive a reload.`,
+    };
+  }
 }

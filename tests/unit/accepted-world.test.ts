@@ -586,5 +586,19 @@ describe("headless seed sweep", () => {
     expect(report.rows.every((row) => row.topologyHash.length === 64)).toBe(true);
     expect(report.meanWitnessLength).toBeGreaterThan(1);
     expect(Object.keys(report.attemptHistogram).length).toBeGreaterThan(0);
+    expect(report.elapsedMs).toBeGreaterThan(0);
+    expect(report.meanMsPerSeed).toBeGreaterThan(0);
+    expect(report.meanPreflightPlanes).toBeGreaterThan(1);
+    expect(Object.keys(report.witnessTypeCounts).length).toBeGreaterThan(0);
+    expect(
+      report.rows.map((row) => ({
+        seed: row.seed,
+        acceptedAttempt: row.acceptedAttempt,
+        topologyHash: row.topologyHash,
+        witnessLength: row.witnessLength,
+        preflightPlaneCount: row.preflightPlaneCount,
+        rejectedAttemptCount: row.rejectedAttemptCount,
+      })),
+    ).toMatchSnapshot();
   }, 120_000);
 });
