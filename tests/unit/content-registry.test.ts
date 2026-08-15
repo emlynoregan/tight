@@ -46,7 +46,7 @@ describe("content registry", () => {
     expect(CONTENT_REGISTRY.byId.ability.has("arcane_gate")).toBe(true);
     expect(CONTENT_REGISTRY.byId.quest.has("q_first_crack")).toBe(true);
     expect(CONTENT_REGISTRY.bossEncounter.arenaId).toBe("olympus_arena");
-    expect(CONTENT_REGISTRY.deathRules.id).toBe("player_death_v1");
+    expect(CONTENT_REGISTRY.deathRules.id).toBe("death_v1");
     expect(CONTENT_REGISTRY.victory.actorId).toBe("boss.boss_olympus");
     expect(CONTENT_REGISTRY.startingLoadout.equippedWeapon).toBe("sword");
     const spirit = CONTENT_REGISTRY.byId.quest.get("q_spirit_path");

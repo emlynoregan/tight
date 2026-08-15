@@ -44,7 +44,7 @@ export const VICTORY = {
 } as const;
 
 export const DEATH_RULES = {
-  id: "player_death_v1",
+  id: "death_v1",
   respawnAt: "safeAnchor",
   restoreHpToMax: true,
   clearActionQueue: true,
@@ -55,7 +55,7 @@ export const DEATH_RULES = {
   clearCooldowns: true,
   clearPendingExtraActions: true,
   clearRevealBonus: true,
-  statusClearField: "clearedOnPlayerDeath",
+  clearAllTemporaryStatuses: true,
 } as const;
 
 export const GENERATION_VERSIONS = [

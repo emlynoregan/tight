@@ -56,6 +56,10 @@ describe("player death", () => {
     player.revealRemainingTicks = 6;
     applyStatus(player, "poisoned", null, []);
     applyStatus(player, "hasted", null, []);
+    applyStatus(player, "phased", null, []);
+    applyStatus(player, "ward_arcane", null, []);
+    applyStatus(player, "regenerating", null, []);
+    applyStatus(player, "braced", null, []);
     runtime.save.pursuits.push({
       actorId: "wolf.test",
       sourcePlane: { ...runtime.save.plane },
@@ -82,8 +86,9 @@ describe("player death", () => {
     expect(runtime.save.actionQueue).toEqual([]);
     expect(runtime.save.heldDirection).toBeNull();
     expect(runtime.save.pursuits).toEqual([]);
-    expect(player.statuses.some((row) => row.id === "poisoned")).toBe(false);
-    expect(player.statuses.some((row) => row.id === "hasted")).toBe(true);
+    expect(player.statuses).toEqual([]);
+    expect(result.events.some((event) => event.type === "status_removed" && event.detail === "hasted")).toBe(true);
+    expect(result.events.some((event) => event.type === "status_removed" && event.detail === "poisoned")).toBe(true);
     expect(runtime.save.flags).toContain("met_mara");
     expect(runtime.save.player.currency).toBe(11);
     expect(runtime.save.player.unspentAp).toBe(2);
@@ -113,6 +118,25 @@ describe("player death", () => {
     expect(player.y).toBe(destAnchor!.y);
     expect(runtime.save.plane).toEqual(dest);
     expect(runtime.currentPlaneBase.plane).toEqual(dest);
+  });
+
+  it("clears only temporary negative statuses when activating a safe anchor", () => {
+    const runtime = newGame();
+    const player = playerActor(runtime);
+    applyStatus(player, "poisoned", null, []);
+    applyStatus(player, "hasted", null, []);
+    applyStatus(player, "braced", null, []);
+    const anchor = runtime.currentPlaneBase.namedPoints.find((point) => point.id === "safe_anchor");
+    expect(anchor).toBeDefined();
+    player.x = anchor!.x;
+    player.y = anchor!.y;
+    player.hp = 8;
+    applyPlayerCommand(runtime, { type: "queue", action: { type: "interact" } });
+    advanceTick(runtime);
+    expect(player.hp).toBe(player.maxHp);
+    expect(player.statuses.some((row) => row.id === "poisoned")).toBe(false);
+    expect(player.statuses.some((row) => row.id === "hasted")).toBe(true);
+    expect(player.statuses.some((row) => row.id === "braced")).toBe(true);
   });
 });
 
@@ -231,7 +255,8 @@ describe("remaining effect primitives", () => {
 
 describe("mechanical completeness", () => {
   it("keeps inspectable death and victory catalogue rows", () => {
-    expect(CONTENT_REGISTRY.deathRules.id).toBe("player_death_v1");
+    expect(CONTENT_REGISTRY.deathRules.id).toBe("death_v1");
+    expect(CONTENT_REGISTRY.deathRules.clearAllTemporaryStatuses).toBe(true);
     expect(CONTENT_REGISTRY.deathRules.respawnAt).toBe("safeAnchor");
     expect(CONTENT_REGISTRY.victory.plane).toEqual({ a: 14, b: 15 });
     expect(CONTENT_REGISTRY.victory.bossId).toBe("olympian_final");

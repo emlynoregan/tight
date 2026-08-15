@@ -418,6 +418,9 @@ export function validateContentRegistry(
   if (registry.deathRules.respawnAt !== "safeAnchor") {
     issues.push({ path: "deathRules.respawnAt", message: "v1 death must respawn at the active safe anchor" });
   }
+  if (registry.deathRules.clearAllTemporaryStatuses !== true) {
+    issues.push({ path: "deathRules.clearAllTemporaryStatuses", message: "death_v1 must clear all temporary statuses" });
+  }
 
   for (const boss of registry.bosses) {
     requireRef(issues, `bosses.${boss.id}.speciesId`, boss.speciesId, registry.byId.monster.has(boss.speciesId));

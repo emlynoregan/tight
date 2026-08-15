@@ -8,11 +8,6 @@ import { applyMonsterDeathRewards } from "./rewards";
 import type { TickEvent } from "./tick-events";
 import { switchCurrentPlane } from "./transitions";
 
-function statusClearedOnDeath(statusId: string): boolean {
-  const field = CONTENT_REGISTRY.deathRules.statusClearField;
-  return CONTENT_REGISTRY.byId.status.get(statusId)?.[field] !== false;
-}
-
 function isFinalBoss(actor: ActorState): boolean {
   const victory = CONTENT_REGISTRY.victory;
   return actor.definitionId === victory.bossId || actor.id === victory.actorId;
@@ -92,13 +87,12 @@ function resolvePlayerDeath(runtime: GameRuntime, actor: ActorState, events: Tic
     runtime.pendingPlayerTransition = null;
   }
   cancelPursuitsInvolvingPlayer(runtime, events);
-  actor.statuses = actor.statuses.filter((instance) => {
-    if (statusClearedOnDeath(instance.id)) {
+  if (rules.clearAllTemporaryStatuses) {
+    for (const instance of actor.statuses) {
       events.push({ type: "status_removed", actorId: actor.id, detail: instance.id });
-      return false;
     }
-    return true;
-  });
+    actor.statuses = [];
+  }
   if (rules.clearCooldowns) {
     actor.cooldowns = [];
   }
