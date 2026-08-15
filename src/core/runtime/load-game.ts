@@ -1,8 +1,8 @@
 import { CONTENT_REGISTRY } from "../data/registry";
 import { getAcceptedWorld } from "../generation/accepted-world";
 import { planeKey } from "../model/plane";
-import type { SaveState } from "../model/save-state";
 import { cloneSaveState, type SaveRecord } from "../save-record";
+import { normalizeActorState, type SaveState } from "../model/save-state";
 import type { CreateNewGameOptions, GameRuntime } from "./game-runtime";
 import { materializeRuntimePlane } from "./materialize-plane";
 
@@ -48,6 +48,9 @@ export function createRuntimeFromSave(save: SaveState, options: CreateNewGameOpt
   }
   if (!Array.isArray(restored.awardedApEvents)) {
     restored.awardedApEvents = [];
+  }
+  for (const actor of restored.actors) {
+    normalizeActorState(actor);
   }
   return {
     ok: true,

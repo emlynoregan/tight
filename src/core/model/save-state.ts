@@ -70,11 +70,24 @@ export interface ActorState {
   vx: number;
   vy: number;
   aiPhaseIndex: number;
+  pendingExtraActions: number;
+  revealBonusRadius: number;
+  revealRemainingTicks: number;
 }
 
 export function defaultAiFields(x: number, y: number): Pick<
   ActorState,
-  "aiState" | "ambushReleased" | "lastAffectedTick" | "guardX" | "guardY" | "vx" | "vy" | "aiPhaseIndex"
+  | "aiState"
+  | "ambushReleased"
+  | "lastAffectedTick"
+  | "guardX"
+  | "guardY"
+  | "vx"
+  | "vy"
+  | "aiPhaseIndex"
+  | "pendingExtraActions"
+  | "revealBonusRadius"
+  | "revealRemainingTicks"
 > {
   return {
     aiState: "idle",
@@ -85,7 +98,23 @@ export function defaultAiFields(x: number, y: number): Pick<
     vx: 0,
     vy: 0,
     aiPhaseIndex: 0,
+    pendingExtraActions: 0,
+    revealBonusRadius: 0,
+    revealRemainingTicks: 0,
   };
+}
+
+export function normalizeActorState(actor: ActorState): ActorState {
+  if (typeof actor.pendingExtraActions !== "number") {
+    actor.pendingExtraActions = 0;
+  }
+  if (typeof actor.revealBonusRadius !== "number") {
+    actor.revealBonusRadius = 0;
+  }
+  if (typeof actor.revealRemainingTicks !== "number") {
+    actor.revealRemainingTicks = 0;
+  }
+  return actor;
 }
 
 export function directionFromDelta(delta: MapCoordinate): Direction | null {

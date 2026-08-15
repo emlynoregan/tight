@@ -19,6 +19,8 @@ function cueFor(event: TickEvent): string | null {
       return "sfx.discovery";
     case "player_died":
       return "sfx.death";
+    case "victory":
+      return "sfx.victory";
     case "monster_died":
       return "sfx.combat.fb_death";
     case "pursuit_started":

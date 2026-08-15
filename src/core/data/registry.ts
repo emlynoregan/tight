@@ -48,7 +48,7 @@ import { ITEMS, STARTING_LOADOUT, STAPLE_SHOP_GOODS } from "./items";
 import { AI_PROFILES, BOSSES, MONSTERS, PURSUIT_PROFILES } from "./monsters";
 import { DIALOGUE_NODES } from "./dialogue";
 import { ABILITY_ACQUISITIONS, NPC_ARCHETYPES, QUESTS, SHOP_INSTANCES, SHOP_TYPES, STORY_NPCS, WORLD_FLAGS } from "./npcs";
-import { GENERATION_VERSIONS, STARTING_PLAYER_STATE, VICTORY } from "./progression";
+import { DEATH_RULES, GENERATION_VERSIONS, STARTING_PLAYER_STATE, VICTORY } from "./progression";
 import { FEATURE_RECIPES, PRIMITIVE_PROFILES, STATIC_FEATURES, STRUCTURE_TEMPLATES, TILE_TYPES } from "./terrain";
 import { TRANSITION_ARCHETYPES, TRANSITION_EFFECT_PROFILES } from "./transitions";
 
@@ -103,6 +103,7 @@ export interface ContentRegistry {
   readonly visibilityProfiles: readonly VisibilityProfile[];
   readonly startingPlayerState: typeof STARTING_PLAYER_STATE;
   readonly victory: typeof VICTORY;
+  readonly deathRules: typeof DEATH_RULES;
   readonly generationVersions: typeof GENERATION_VERSIONS;
   readonly byId: {
     readonly dimension: ReadonlyMap<number, DimensionDefinition>;
@@ -178,6 +179,7 @@ export function createContentRegistry(): ContentRegistry {
     visibilityProfiles: VISIBILITY_PROFILES,
     startingPlayerState: STARTING_PLAYER_STATE,
     victory: VICTORY,
+    deathRules: DEATH_RULES,
     generationVersions: GENERATION_VERSIONS,
     byId: {
       dimension: indexById(DIMENSIONS),

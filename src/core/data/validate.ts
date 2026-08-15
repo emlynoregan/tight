@@ -410,6 +410,14 @@ export function validateContentRegistry(
 
   requireRef(issues, "victory.bossId", registry.victory.bossId, registry.byId.monster.has(registry.victory.bossId));
   requireRef(issues, "victory.encounterId", registry.victory.encounterId, registry.victory.encounterId === registry.bossEncounter.id);
+  requireRef(issues, "victory.flagId", registry.victory.flagId, registry.worldFlags.includes(registry.victory.flagId));
+  requireRef(issues, "victory.deadFlagId", registry.victory.deadFlagId, registry.worldFlags.includes(registry.victory.deadFlagId));
+  if (registry.victory.plane.a !== 14 || registry.victory.plane.b !== 15) {
+    issues.push({ path: "victory.plane", message: "victory plane must be (14,15)" });
+  }
+  if (registry.deathRules.respawnAt !== "safeAnchor") {
+    issues.push({ path: "deathRules.respawnAt", message: "v1 death must respawn at the active safe anchor" });
+  }
 
   for (const boss of registry.bosses) {
     requireRef(issues, `bosses.${boss.id}.speciesId`, boss.speciesId, registry.byId.monster.has(boss.speciesId));

@@ -1,6 +1,6 @@
 import { CORE_IDENTITY } from "./identity";
 import type { GeneratorVersionId } from "./model/ids";
-import type { SaveState } from "./model/save-state";
+import { normalizeActorState, type SaveState } from "./model/save-state";
 
 export const SAVE_FORMAT_VERSION = 1 as const;
 export type SaveFormatVersion = typeof SAVE_FORMAT_VERSION;
@@ -83,6 +83,11 @@ export function validateSaveRecord(value: unknown): SaveValidationResult {
   }
   if (!Array.isArray(save.awardedApEvents)) {
     save.awardedApEvents = [];
+  }
+  if (Array.isArray(save.actors)) {
+    for (const actor of save.actors) {
+      normalizeActorState(actor);
+    }
   }
   return {
     ok: true,

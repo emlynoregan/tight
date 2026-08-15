@@ -7,7 +7,7 @@ import { orthogonalAdjacent } from "../rules/targeting";
 import { fixtureAt, transitionById } from "../rules/transitions";
 import { playerActor, type GameRuntime } from "../runtime/game-runtime";
 import type { TickEvent } from "../rules/tick-events";
-import { cellIsVisible, visibilityProfileFor } from "./visibility";
+import { cellIsVisible, effectiveVisibilityRadius, visibilityProfileFor } from "./visibility";
 
 export interface PlaneCellView {
   readonly x: number;
@@ -168,6 +168,6 @@ export function getVisiblePlaneView(runtime: GameRuntime, events: readonly TickE
       return fx ? [fx] : [];
     }),
     visibilityProfileId: profile.id,
-    visibilityRadius: profile.radius,
+    visibilityRadius: effectiveVisibilityRadius(runtime),
   };
 }

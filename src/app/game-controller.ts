@@ -97,6 +97,11 @@ export class GameController {
   }
 
   command(command: PlayerCommand): CommandResult {
+    if (command.type === "newGame" && this.runtime.save.modal === "confirm-new-game") {
+      this.resetToNewGame();
+      void this.persist();
+      return { ok: true };
+    }
     const result = applyPlayerCommand(this.runtime, command);
     if (result.ok && command.type !== "setHeldDirection" && command.type !== "queue" && command.type !== "queueFromModal") {
       void this.persist();
@@ -194,6 +199,19 @@ export class GameController {
       shop: getShopView(this.runtime),
       quests: getQuestLogView(this.runtime),
     };
+  }
+
+  private resetToNewGame(): void {
+    const seed = this.runtime.save.worldSeed;
+    this.runtime = createNewGame(CORE_IDENTITY.generatorVersion, seed, {
+      cache: createAcceptedWorldCache(),
+    });
+    this.messages = [];
+    this.lastEvents = [];
+    this.musicKey = null;
+    if (this.audioArmed) {
+      this.syncMusic(true);
+    }
   }
 
   private syncMusic(force = false): void {

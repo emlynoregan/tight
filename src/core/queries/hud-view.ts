@@ -68,6 +68,8 @@ export function formatTickEvent(event: TickEvent): string | null {
       return "You died";
     case "player_respawned":
       return "Respawned at Safe Anchor";
+    case "victory":
+      return "Olympus conquered";
     case "pursuit_started":
       return "Something followed";
     case "pursuit_arrived":
@@ -143,7 +145,7 @@ export function getHudView(runtime: GameRuntime, messages: readonly string[] = [
     canInteract ? "E interact" : "E interact (nothing adjacent)",
     canAttack ? `F attack (${attackId})` : "F attack (need adjacent foe)",
     "G pick up  I inventory  C character  L map key  J quests",
-    save.modal ? "Esc close modal" : null,
+    save.modal === "victory" ? "Continue or start a New Game" : save.modal === "confirm-new-game" ? "Confirm New Game or cancel" : save.modal ? "Esc close modal" : null,
   ].filter((row): row is string => row !== null);
   return {
     hp: player.hp,

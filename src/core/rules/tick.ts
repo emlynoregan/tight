@@ -56,6 +56,13 @@ export function advanceTick(runtime: GameRuntime): TickResult {
     }
     events.push(...resolveAction(runtime, actor, action));
     acted.add(entry.actorId);
+    while (actor.pendingExtraActions > 0 && actor.hp > 0 && !save.modal && planesEqual(actor.plane, save.plane)) {
+      actor.pendingExtraActions -= 1;
+      const extra = actor.id === "player"
+        ? capturePlayerAction(save)
+        : intended.get(actor.id) ?? { type: "wait" as const };
+      events.push(...resolveAction(runtime, actor, extra));
+    }
   }
 
   applyEnvironmentalMovement(runtime, order.filter((entry) => {

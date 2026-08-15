@@ -218,6 +218,7 @@ export interface AtomicEffect {
   readonly damageType?: DamageTypeId;
   readonly noHitRoll?: boolean;
   readonly moveMode?: "push" | "pull";
+  readonly durationTicks?: number;
 }
 
 export interface EffectBundle {

@@ -31,6 +31,10 @@ export function bindModalCommands(shell: ShellElements, dispatch: (command: Play
       dispatch({ type: "closeModal" });
       return;
     }
+    if (cmd === "newGame") {
+      dispatch({ type: "newGame" });
+      return;
+    }
     if (cmd === "choice" && choiceId) {
       dispatch({ type: "dialogueChoice", choiceId });
       return;
@@ -106,6 +110,24 @@ export function renderManagementModal(
   if (modal?.startsWith("shop:") && extras?.shop) {
     shell.modal.hidden = false;
     shell.modal.innerHTML = shopMarkup(extras.shop);
+    return;
+  }
+  if (modal === "victory") {
+    shell.modal.hidden = false;
+    shell.modal.innerHTML = `
+      <h2>Olympus conquered</h2>
+      <p>The final boss is defeated. The world remains as you left it.</p>
+      <p><button type="button" data-cmd="close">Continue</button> <button type="button" data-cmd="newGame">New Game</button></p>
+    `;
+    return;
+  }
+  if (modal === "confirm-new-game") {
+    shell.modal.hidden = false;
+    shell.modal.innerHTML = `
+      <h2>Start a New Game?</h2>
+      <p>This replaces the current save. The same world seed will be used.</p>
+      <p><button type="button" data-cmd="newGame">Replace save</button> <button type="button" data-cmd="close">Cancel</button></p>
+    `;
     return;
   }
   if (modal) {

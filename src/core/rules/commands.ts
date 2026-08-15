@@ -20,11 +20,14 @@ export type PlayerCommand =
   | { readonly type: "spendAp"; readonly attribute: AttributeId }
   | { readonly type: "dialogueChoice"; readonly choiceId: string }
   | { readonly type: "buy"; readonly sourceId: string }
-  | { readonly type: "sell"; readonly itemId: string };
+  | { readonly type: "sell"; readonly itemId: string }
+  | { readonly type: "newGame" };
 
 export type CommandResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: "rejected"; readonly message: string };
+
+const LIFECYCLE_MODALS = new Set(["victory", "confirm-new-game"]);
 
 function isDirection(value: string | undefined): value is Direction {
   return value !== undefined && (DIRECTIONS as readonly string[]).includes(value);
@@ -106,10 +109,24 @@ function enqueueAction(save: SaveState, action: IntentionalAction): CommandResul
 export function applyPlayerCommand(runtime: GameRuntime, command: PlayerCommand): CommandResult {
   const save = runtime.save;
   if (command.type === "closeModal") {
+    if (save.modal === "confirm-new-game") {
+      save.modal = "victory";
+      return { ok: true };
+    }
     save.modal = null;
     return { ok: true };
   }
+  if (command.type === "newGame") {
+    if (save.modal === "victory") {
+      save.modal = "confirm-new-game";
+      return { ok: true };
+    }
+    return { ok: false, code: "rejected", message: "new game requires confirmation" };
+  }
   if (command.type === "openModal") {
+    if (save.modal && LIFECYCLE_MODALS.has(save.modal)) {
+      return { ok: false, code: "rejected", message: "simulation paused" };
+    }
     save.modal = command.modal;
     return { ok: true };
   }
@@ -125,11 +142,17 @@ export function applyPlayerCommand(runtime: GameRuntime, command: PlayerCommand)
     if (!save.modal) {
       return { ok: false, code: "rejected", message: "management commands require a paused modal" };
     }
+    if (LIFECYCLE_MODALS.has(save.modal)) {
+      return { ok: false, code: "rejected", message: "simulation paused" };
+    }
     return applyPausedMutation(runtime, command);
   }
   if (command.type === "queueFromModal") {
     if (!save.modal) {
       return { ok: false, code: "rejected", message: "management commands require a paused modal" };
+    }
+    if (LIFECYCLE_MODALS.has(save.modal)) {
+      return { ok: false, code: "rejected", message: "simulation paused" };
     }
     const queued = enqueueAction(save, command.action);
     if (!queued.ok) {

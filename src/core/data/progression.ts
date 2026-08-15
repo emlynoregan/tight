@@ -37,6 +37,25 @@ export const VICTORY = {
   encounterId: "boss_olympus",
   plane: { a: 14, b: 15 },
   bossId: "olympian_final",
+  actorId: "boss.boss_olympus",
+  flagId: "victory",
+  deadFlagId: "final_boss_dead",
+  modalId: "victory",
+} as const;
+
+export const DEATH_RULES = {
+  id: "player_death_v1",
+  respawnAt: "safeAnchor",
+  restoreHpToMax: true,
+  clearActionQueue: true,
+  clearHeldDirection: true,
+  clearSpaceVelocity: true,
+  cancelPursuitsInvolvingPlayer: true,
+  clearPendingTransition: true,
+  clearCooldowns: true,
+  clearPendingExtraActions: true,
+  clearRevealBonus: true,
+  statusClearField: "clearedOnPlayerDeath",
 } as const;
 
 export const GENERATION_VERSIONS = [

@@ -25,11 +25,21 @@ export function visibilityProfileFor(runtime: GameRuntime): VisibilityProfile {
   return CONTENT_REGISTRY.visibilityProfiles.find((profile) => profile.id === id) ?? { id: "clear", radius: "unlimited" };
 }
 
+export function effectiveVisibilityRadius(runtime: GameRuntime): number | "unlimited" {
+  const profile = visibilityProfileFor(runtime);
+  if (profile.radius === "unlimited") {
+    return "unlimited";
+  }
+  const player = playerActor(runtime);
+  const bonus = player.revealRemainingTicks > 0 ? player.revealBonusRadius : 0;
+  return profile.radius + bonus;
+}
+
 export function cellIsVisible(runtime: GameRuntime, cell: MapCoordinate): boolean {
   const player = playerActor(runtime);
-  const profile = visibilityProfileFor(runtime);
   const wraps = runtime.currentPlaneBase.wraps;
-  if (profile.radius !== "unlimited" && chebyshevOnPlane(player, cell, wraps) > profile.radius) {
+  const radius = effectiveVisibilityRadius(runtime);
+  if (radius !== "unlimited" && chebyshevOnPlane(player, cell, wraps) > radius) {
     return false;
   }
   if (cell.x === player.x && cell.y === player.y) {

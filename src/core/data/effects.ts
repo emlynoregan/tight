@@ -121,7 +121,7 @@ export const ATOMIC_EFFECTS: readonly AtomicEffect[] = [
   { id: "blink_2", kind: "teleportWithinPlane", amount: 2 },
   { id: "blink_4", kind: "teleportWithinPlane", amount: 4 },
   { id: "clear_velocity", kind: "clearVelocity" },
-  { id: "reveal_radius_2_10", kind: "revealTiles", amount: 2 },
+  { id: "reveal_radius_2_10", kind: "revealTiles", amount: 2, durationTicks: 10 },
   { id: "extra_action_once", kind: "extraActionOnce" },
 ];
 

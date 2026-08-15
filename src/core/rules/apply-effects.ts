@@ -142,8 +142,25 @@ export function applyAtomicEffect(
     }
     return;
   }
-  if (effect.kind === "clearVelocity" || effect.kind === "revealTiles" || effect.kind === "extraActionOnce") {
-    events.push({ type: "effect_deferred", actorId: target.id, detail: effect.kind });
+  if (effect.kind === "clearVelocity") {
+    if (target.vx !== 0 || target.vy !== 0) {
+      events.push({ type: "velocity_cleared", actorId: target.id });
+    }
+    target.vx = 0;
+    target.vy = 0;
+    return;
+  }
+  if (effect.kind === "revealTiles") {
+    const radius = effect.amount ?? 0;
+    const duration = effect.durationTicks ?? 10;
+    target.revealBonusRadius = Math.max(target.revealBonusRadius, radius);
+    target.revealRemainingTicks = Math.max(target.revealRemainingTicks, duration);
+    events.push({ type: "tiles_revealed", actorId: target.id, amount: radius });
+    return;
+  }
+  if (effect.kind === "extraActionOnce") {
+    target.pendingExtraActions += 1;
+    events.push({ type: "extra_action_granted", actorId: target.id });
   }
 }
 
@@ -210,6 +227,13 @@ export function expireStatusesAndCooldowns(save: SaveState, events: TickEvent[])
       }
     }
     actor.cooldowns = remainingCooldowns;
+    if (actor.revealRemainingTicks > 0) {
+      actor.revealRemainingTicks -= 1;
+      if (actor.revealRemainingTicks <= 0) {
+        actor.revealBonusRadius = 0;
+        actor.revealRemainingTicks = 0;
+      }
+    }
   }
 }
 
