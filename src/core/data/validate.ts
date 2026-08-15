@@ -262,6 +262,15 @@ export function validateContentRegistry(
     requireRef(issues, `storyNpcs.${npc.id}`, npc.archetypeId, registry.byId.npcArchetype.has(npc.archetypeId));
   }
 
+  uniqueIds("dialogueNodes", registry.dialogueNodes.map((row) => row.id), issues);
+  for (const node of registry.dialogueNodes) {
+    for (const choice of node.choices) {
+      if (choice.next) {
+        requireRef(issues, `dialogueNodes.${node.id}.${choice.id}.next`, choice.next, registry.byId.dialogue.has(choice.next));
+      }
+    }
+  }
+
   for (const archetype of registry.npcArchetypes) {
     if (archetype.dimensionMin < 0 || archetype.dimensionMax > 15 || archetype.dimensionMin > archetype.dimensionMax) {
       issues.push({ path: `npcArchetypes.${archetype.id}`, message: "illegal dimension eligibility range" });

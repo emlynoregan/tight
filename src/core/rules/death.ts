@@ -1,16 +1,19 @@
 import { compareStableIds } from "../generation/semantic-random";
-import type { ActorState, SaveState } from "../model/save-state";
+import type { ActorState } from "../model/save-state";
 import { CONTENT_REGISTRY } from "../data/registry";
+import type { GameRuntime } from "../runtime/game-runtime";
+import { applyMonsterDeathRewards } from "./rewards";
 import type { TickEvent } from "./tick-events";
 
 const NEGATIVE_CLEARED_ON_DEATH = (statusId: string): boolean =>
   CONTENT_REGISTRY.byId.status.get(statusId)?.clearedOnPlayerDeath === true;
 
-export function resolveDeaths(save: SaveState, events: TickEvent[]): void {
+export function resolveDeaths(runtime: GameRuntime, events: TickEvent[]): void {
+  const save = runtime.save;
   const doomed = save.actors.filter((actor) => actor.hp <= 0).sort((left, right) => compareStableIds(left.id, right.id));
   for (const actor of doomed) {
     if (actor.kind === "player") {
-      resolvePlayerDeath(save, actor, events);
+      resolvePlayerDeath(runtime, actor, events);
       continue;
     }
     save.actors = save.actors.filter((row) => row.id !== actor.id);
@@ -18,10 +21,12 @@ export function resolveDeaths(save: SaveState, events: TickEvent[]): void {
       save.flags.push(`defeated:${actor.id}`);
     }
     events.push({ type: "monster_died", actorId: actor.id });
+    applyMonsterDeathRewards(runtime, actor, events);
   }
 }
 
-function resolvePlayerDeath(save: SaveState, actor: ActorState, events: TickEvent[]): void {
+function resolvePlayerDeath(runtime: GameRuntime, actor: ActorState, events: TickEvent[]): void {
+  const save = runtime.save;
   events.push({ type: "player_died", actorId: actor.id });
   const anchor = save.player.safeAnchor;
   actor.plane = { ...anchor.plane };

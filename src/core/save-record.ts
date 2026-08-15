@@ -75,6 +75,15 @@ export function validateSaveRecord(value: unknown): SaveValidationResult {
   if (!Array.isArray(save.groundItems)) {
     save.groundItems = [];
   }
+  if (!Array.isArray(save.collectedSources)) {
+    save.collectedSources = [];
+  }
+  if (!Array.isArray(save.quests)) {
+    save.quests = [];
+  }
+  if (!Array.isArray(save.awardedApEvents)) {
+    save.awardedApEvents = [];
+  }
   return {
     ok: true,
     record: {

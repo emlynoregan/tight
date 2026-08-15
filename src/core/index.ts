@@ -70,6 +70,8 @@ export type {
 export type { SolverResult, SolverFailure, SolverSearchOptions, WitnessStep } from "./generation/solver-types";
 export { createNewGame, hashSaveState, playerActor, createMonsterActor, maxHpForCon } from "./runtime/game-runtime";
 export type { GameRuntime, CreateNewGameOptions } from "./runtime/game-runtime";
+export { executeWitness } from "./runtime/execute-witness";
+export type { WitnessExecutionResult } from "./runtime/execute-witness";
 export { createRuntimeFromSave, createRuntimeFromSaveRecord } from "./runtime/load-game";
 export type { LoadGameResult } from "./runtime/load-game";
 export { materializeRuntimePlane } from "./runtime/materialize-plane";
@@ -86,6 +88,8 @@ export { getAvailableActions } from "./queries/available-actions";
 export type { AvailableActions } from "./queries/available-actions";
 export { getInventoryView, getCharacterView } from "./queries/inventory-view";
 export type { InventoryView, CharacterView, InventorySlotView } from "./queries/inventory-view";
+export { getDialogueView, getShopView, getQuestLogView } from "./queries/authored-view";
+export type { DialogueView, ShopView, QuestLogEntry } from "./queries/authored-view";
 export { cellIsVisible, visibilityProfileFor } from "./queries/visibility";
 export { tryAddItem, pickupGroundItem, dropInventoryItem, equipItem, unequipSlot, ordinarySlotCount, itemQuantity } from "./rules/inventory";
 export { spendAdvancementPoint, playerAtSafeAnchor } from "./rules/advancement";
@@ -101,6 +105,7 @@ export {
   destinationCoordinate,
   evaluatePursuitHandoffs,
   ensurePlaneLoaded,
+  recordDiscovery,
   switchCurrentPlane,
 } from "./rules/transitions";
 export { initiativeOrder } from "./rules/initiative";

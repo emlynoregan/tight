@@ -54,6 +54,42 @@ const FAMILY_FILL_TILE: Partial<Record<FamilyId, string>> = {
 
 const WRAPPING_FAMILIES = new Set<FamilyId>(["arcane", "space"]);
 
+const FAMILY_HAZARD_TILE: Partial<Record<FamilyId, string>> = {
+  aboveground: "poison_mire",
+  dungeon: "lava",
+  arcane: "unstable_arcane",
+  void: "void_erosion",
+};
+
+function scatterHazards(
+  ctx: PrimitiveContext,
+  grid: PlaneGrid,
+  family: FamilyId,
+  reserved: Set<string>,
+): void {
+  const tileId = FAMILY_HAZARD_TILE[family];
+  const familyDef = CONTENT_REGISTRY.planeFamilies.find((row) => row.id === family);
+  if (!tileId || !familyDef) {
+    return;
+  }
+  const candidates = allCells().filter((cell) => isFreeOccupiable(grid, cell, reserved));
+  if (candidates.length === 0) {
+    return;
+  }
+  const percent = boundedInt(
+    primitiveParts(ctx, "hazard.density"),
+    familyDef.hazardDensityMinPercent,
+    familyDef.hazardDensityMaxPercent,
+  );
+  const target = Math.floor((candidates.length * percent) / 100);
+  const remaining = [...candidates].sort(compareCoordinates);
+  for (let i = 0; i < target && remaining.length > 0; i += 1) {
+    const index = boundedInt(primitiveParts(ctx, "hazard.select", i), 0, remaining.length - 1);
+    const cell = remaining.splice(index, 1)[0]!;
+    grid.terrain[cell.y]![cell.x] = tileId;
+  }
+}
+
 const ANCHOR_STAMP: StampMatrix = {
   cells: [
     [null, null, null],
@@ -397,6 +433,13 @@ export function generatePlaneBase(
     const ctx = context(generatorVersion, worldSeed, plane, "encounters", guardian.id, index);
     placeOccupiableActor(ctx, grid, wraps, reserved, baseTile, namedPoints, placementFailures, guardian.id, "guardian", "guardian");
   });
+
+  scatterHazards(
+    context(generatorVersion, worldSeed, plane, "hazards", `${planeKey(plane)}.hazards`, 0),
+    grid,
+    family,
+    reserved,
+  );
 
   return finalizePlaneGeometry({
     generatorVersion,

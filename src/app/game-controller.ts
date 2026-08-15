@@ -6,8 +6,11 @@ import {
   formatTickEvent,
   getAvailableActions,
   getCharacterView,
+  getDialogueView,
   getHudView,
   getInventoryView,
+  getQuestLogView,
+  getShopView,
   getVisiblePlaneView,
   advanceTick,
   makeSaveRecord,
@@ -30,6 +33,9 @@ export interface GameSnapshot {
   readonly hud: HudView;
   readonly inventory: ReturnType<typeof getInventoryView>;
   readonly character: ReturnType<typeof getCharacterView>;
+  readonly dialogue: ReturnType<typeof getDialogueView>;
+  readonly shop: ReturnType<typeof getShopView>;
+  readonly quests: ReturnType<typeof getQuestLogView>;
 }
 
 export interface GameControllerOptions {
@@ -117,6 +123,9 @@ export class GameController {
     if (intent.type === "legend") {
       return this.command({ type: "openModal", modal: "legend" });
     }
+    if (intent.type === "questLog") {
+      return this.command({ type: "openModal", modal: "questlog" });
+    }
     if (this.runtime.save.modal) {
       return { ok: false, code: "rejected", message: "simulation paused" };
     }
@@ -181,6 +190,9 @@ export class GameController {
       hud: getHudView(this.runtime, this.messages),
       inventory: getInventoryView(this.runtime),
       character: getCharacterView(this.runtime),
+      dialogue: getDialogueView(this.runtime),
+      shop: getShopView(this.runtime),
+      quests: getQuestLogView(this.runtime),
     };
   }
 

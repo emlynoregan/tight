@@ -1,4 +1,4 @@
-import { chebyshev, manhattanOnPlane } from "../generation/grid";
+import { chebyshev } from "../generation/grid";
 import { MAP_SIZE, type MapCoordinate } from "../model/plane";
 import type { VisibilityProfile } from "../model/content-types";
 import { CONTENT_REGISTRY } from "../data/registry";
@@ -35,8 +35,5 @@ export function cellIsVisible(runtime: GameRuntime, cell: MapCoordinate): boolea
   if (cell.x === player.x && cell.y === player.y) {
     return true;
   }
-  if (wraps && manhattanOnPlane(player, cell, true) !== Math.abs(player.x - cell.x) + Math.abs(player.y - cell.y)) {
-    return chebyshevOnPlane(player, cell, true) <= (profile.radius === "unlimited" ? MAP_SIZE : profile.radius);
-  }
-  return hasLineOfSight(runtime.currentPlaneBase, player, cell);
+  return hasLineOfSight(runtime.currentPlaneBase, player, cell, runtime.save);
 }

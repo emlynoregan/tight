@@ -40,6 +40,15 @@ export function createRuntimeFromSave(save: SaveState, options: CreateNewGameOpt
   if (!Array.isArray(restored.groundItems)) {
     restored.groundItems = [];
   }
+  if (!Array.isArray(restored.collectedSources)) {
+    restored.collectedSources = [];
+  }
+  if (!Array.isArray(restored.quests)) {
+    restored.quests = [];
+  }
+  if (!Array.isArray(restored.awardedApEvents)) {
+    restored.awardedApEvents = [];
+  }
   return {
     ok: true,
     runtime: {

@@ -534,6 +534,7 @@ describe("milestone B scenario", () => {
       const dest = grassPlane(NEXT, "inside");
       const row = transitionRow("t.door", START, NEXT);
       installWorld(runtime, source, dest, [row]);
+      runtime.save.actors = runtime.save.actors.filter((row) => row.id === "player");
       const wolf = createMonsterActor("wolf.1", "wolf", START, 5, 5);
       wolf.aiState = "chasing";
       runtime.save.actors.push(wolf);

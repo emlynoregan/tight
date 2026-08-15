@@ -1,4 +1,12 @@
-import type { CharacterView, InventoryView, PlaneView, PlayerCommand } from "../core";
+import type {
+  CharacterView,
+  DialogueView,
+  InventoryView,
+  PlaneView,
+  PlayerCommand,
+  QuestLogEntry,
+  ShopView,
+} from "../core";
 import type { EquipmentSlotId } from "../core/model/ids";
 import type { PresentationFacade } from "../presentation";
 import { legendMarkup } from "./legend";
@@ -17,8 +25,22 @@ export function bindModalCommands(shell: ShellElements, dispatch: (command: Play
     const itemId = target.dataset.item;
     const slot = target.dataset.slot as EquipmentSlotId | undefined;
     const attribute = target.dataset.attr;
+    const choiceId = target.dataset.choice;
+    const sourceId = target.dataset.source;
     if (cmd === "close") {
       dispatch({ type: "closeModal" });
+      return;
+    }
+    if (cmd === "choice" && choiceId) {
+      dispatch({ type: "dialogueChoice", choiceId });
+      return;
+    }
+    if (cmd === "buy" && sourceId) {
+      dispatch({ type: "buy", sourceId });
+      return;
+    }
+    if (cmd === "sell" && itemId) {
+      dispatch({ type: "sell", itemId });
       return;
     }
     if (cmd === "equip" && itemId) {
@@ -48,7 +70,13 @@ export function renderManagementModal(
   modal: string | null,
   inventory: InventoryView,
   character: CharacterView,
-  extras?: { readonly plane: PlaneView; readonly presentation: PresentationFacade },
+  extras?: {
+    readonly plane: PlaneView;
+    readonly presentation: PresentationFacade;
+    readonly dialogue?: DialogueView | null;
+    readonly shop?: ShopView | null;
+    readonly quests?: readonly QuestLogEntry[];
+  },
 ): void {
   if (modal === "inventory") {
     shell.modal.hidden = false;
@@ -63,6 +91,21 @@ export function renderManagementModal(
   if (modal === "legend" && extras) {
     shell.modal.hidden = false;
     shell.modal.innerHTML = legendMarkup(extras.plane, extras.presentation);
+    return;
+  }
+  if (modal === "questlog") {
+    shell.modal.hidden = false;
+    shell.modal.innerHTML = questLogMarkup(extras?.quests ?? []);
+    return;
+  }
+  if (modal?.startsWith("dialogue:") && extras?.dialogue) {
+    shell.modal.hidden = false;
+    shell.modal.innerHTML = dialogueMarkup(extras.dialogue);
+    return;
+  }
+  if (modal?.startsWith("shop:") && extras?.shop) {
+    shell.modal.hidden = false;
+    shell.modal.innerHTML = shopMarkup(extras.shop);
     return;
   }
   if (modal) {
@@ -114,6 +157,54 @@ function characterMarkup(view: CharacterView): string {
   return `
     <h2>Character</h2>
     <p>Unspent AP ${view.unspentAp}. ${where}</p>
+    <ul>${rows}</ul>
+    <button type="button" data-cmd="close">Close</button>
+  `;
+}
+
+function dialogueMarkup(view: DialogueView): string {
+  const choices = view.choices
+    .map((choice) => {
+      const disabled = choice.available ? "" : " disabled";
+      return `<li><button type="button" data-cmd="choice" data-choice="${choice.id}"${disabled}>${choice.label}</button></li>`;
+    })
+    .join("");
+  return `
+    <h2>${view.speaker}</h2>
+    <p>${view.text}</p>
+    <ul>${choices}</ul>
+    <button type="button" data-cmd="close">Close</button>
+  `;
+}
+
+function shopMarkup(view: ShopView): string {
+  const stock = view.stock
+    .map((row) => {
+      const label = row.unlimited ? "staple" : row.remaining > 0 ? "limited" : "sold out";
+      const buy = row.remaining > 0 || row.unlimited
+        ? `<button type="button" data-cmd="buy" data-source="${row.sourceId}">Buy ${row.price}</button>`
+        : "";
+      return `<li>${row.name} (${label}) ${buy}</li>`;
+    })
+    .join("");
+  const sell = view.sellable
+    .map((row) => `<li>${row.name} <button type="button" data-cmd="sell" data-item="${row.itemId}">Sell ${row.price}</button></li>`)
+    .join("");
+  return `
+    <h2>Shop</h2>
+    <p>Coin ${view.currency}</p>
+    <h3>Stock</h3>
+    <ul>${stock || "<li>None</li>"}</ul>
+    <h3>Sell</h3>
+    <ul>${sell || "<li>Nothing sellable</li>"}</ul>
+    <button type="button" data-cmd="close">Close</button>
+  `;
+}
+
+function questLogMarkup(quests: readonly QuestLogEntry[]): string {
+  const rows = quests.map((row) => `<li>${row.name} — ${row.state}</li>`).join("") || "<li>No active or completed quests.</li>";
+  return `
+    <h2>Quests</h2>
     <ul>${rows}</ul>
     <button type="button" data-cmd="close">Close</button>
   `;

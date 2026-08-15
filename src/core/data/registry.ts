@@ -6,6 +6,7 @@ import type {
   AttackDefinition,
   AtomicEffect,
   BossDefinition,
+  DialogueNode,
   DimensionDefinition,
   EffectBundle,
   EncounterDefinition,
@@ -45,6 +46,7 @@ import {
 import { HAZARDS, VISIBILITY_PROFILES } from "./environment";
 import { ITEMS, STARTING_LOADOUT, STAPLE_SHOP_GOODS } from "./items";
 import { AI_PROFILES, BOSSES, MONSTERS, PURSUIT_PROFILES } from "./monsters";
+import { DIALOGUE_NODES } from "./dialogue";
 import { ABILITY_ACQUISITIONS, NPC_ARCHETYPES, QUESTS, SHOP_INSTANCES, SHOP_TYPES, STORY_NPCS, WORLD_FLAGS } from "./npcs";
 import { GENERATION_VERSIONS, STARTING_PLAYER_STATE, VICTORY } from "./progression";
 import { FEATURE_RECIPES, PRIMITIVE_PROFILES, STATIC_FEATURES, STRUCTURE_TEMPLATES, TILE_TYPES } from "./terrain";
@@ -95,6 +97,7 @@ export interface ContentRegistry {
   readonly quests: readonly QuestDefinition[];
   readonly abilityAcquisitions: readonly AbilityAcquisition[];
   readonly worldFlags: readonly string[];
+  readonly dialogueNodes: readonly DialogueNode[];
   readonly transitionEffectProfiles: readonly string[];
   readonly hazards: readonly HazardDefinition[];
   readonly visibilityProfiles: readonly VisibilityProfile[];
@@ -123,6 +126,7 @@ export interface ContentRegistry {
     readonly featureRecipe: ReadonlyMap<string, FeatureRecipe>;
     readonly abilityAcquisition: ReadonlyMap<string, AbilityAcquisition>;
     readonly shopInstance: ReadonlyMap<string, ShopInstanceDefinition>;
+    readonly dialogue: ReadonlyMap<string, DialogueNode>;
   };
 }
 
@@ -168,6 +172,7 @@ export function createContentRegistry(): ContentRegistry {
     quests: QUESTS,
     abilityAcquisitions: ABILITY_ACQUISITIONS,
     worldFlags: WORLD_FLAGS,
+    dialogueNodes: DIALOGUE_NODES,
     transitionEffectProfiles: TRANSITION_EFFECT_PROFILES,
     hazards: HAZARDS,
     visibilityProfiles: VISIBILITY_PROFILES,
@@ -196,6 +201,7 @@ export function createContentRegistry(): ContentRegistry {
       featureRecipe: indexById(FEATURE_RECIPES),
       abilityAcquisition: new Map(ABILITY_ACQUISITIONS.map((row) => [row.abilityId, row])),
       shopInstance: indexById(SHOP_INSTANCES),
+      dialogue: indexById(DIALOGUE_NODES),
     },
   };
 }

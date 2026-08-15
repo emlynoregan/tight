@@ -7,6 +7,7 @@ import type { GameRuntime } from "../runtime/game-runtime";
 import { canOccupy, destinationCell } from "./occupancy";
 import type { TickEvent } from "./tick-events";
 import { maybeStepOnTransition } from "./transitions";
+import { applyHazardsAt } from "./hazards";
 
 export function spacePhysicsActive(family: string): boolean {
   return family === "space";
@@ -111,6 +112,7 @@ export function applyEnvironmentalMovement(
       actor.x = landed.x;
       actor.y = landed.y;
       events.push({ type: "actor_moved", actorId: actor.id, x: actor.x, y: actor.y });
+      applyHazardsAt(save, plane, actor, "onEnter", events);
     }
     if (landed.blocked) {
       actor.vx = 0;

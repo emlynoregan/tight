@@ -76,7 +76,7 @@ function collectTargets(
     if (attackRangeDistance(attacker, target) > attack.range) {
       return { error: "out of range" };
     }
-    if (attack.requiresLos && !hasLineOfSight(plane, attacker, target)) {
+    if (attack.requiresLos && !hasLineOfSight(plane, attacker, target, save)) {
       return { error: "no line of sight" };
     }
     return [target];
@@ -181,6 +181,7 @@ function targetStillLegal(
   attacker: ActorState,
   target: ActorState,
   attack: AttackDefinition,
+  save: SaveState,
 ): boolean {
   if (attack.shape === "adjacent") {
     if (!orthogonalAdjacent(attacker, plane.wraps).some((cell) => cell.x === target.x && cell.y === target.y)) {
@@ -191,7 +192,7 @@ function targetStillLegal(
       return false;
     }
   }
-  if (attack.requiresLos && !hasLineOfSight(plane, attacker, target)) {
+  if (attack.requiresLos && !hasLineOfSight(plane, attacker, target, save)) {
     return false;
   }
   if (actorIsBlinded(attacker) && attack.requiresLos && manhattan(attacker, target) > 1) {
@@ -249,7 +250,7 @@ export function resolveAttackOnTargets(
     if (!save.actors.includes(target)) {
       continue;
     }
-    if (!targetStillLegal(plane, attacker, target, attack)) {
+    if (!targetStillLegal(plane, attacker, target, attack, save)) {
       events.push({ type: "action_failed", actorId: attacker.id, targetId: target.id, detail: "illegal target" });
       continue;
     }

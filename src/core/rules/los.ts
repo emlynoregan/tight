@@ -1,6 +1,8 @@
 import { CONTENT_REGISTRY } from "../data/registry";
 import type { PlaneBase } from "../generation/plane-types";
 import type { MapCoordinate } from "../model/plane";
+import type { SaveState } from "../model/save-state";
+import { doorRuntimeState } from "./occupancy";
 
 function sign(value: number): number {
   if (value > 0) {
@@ -49,7 +51,7 @@ export function supercoverLine(start: MapCoordinate, end: MapCoordinate): MapCoo
   return cells;
 }
 
-function cellBlocks(plane: PlaneBase, cell: MapCoordinate, kind: "los" | "loe"): boolean {
+function cellBlocks(plane: PlaneBase, cell: MapCoordinate, kind: "los" | "loe", save?: SaveState): boolean {
   const tileId = plane.terrain[cell.y]?.[cell.x];
   const tile = tileId ? CONTENT_REGISTRY.byId.tile.get(tileId) : undefined;
   if (kind === "los" ? tile?.blocksLos : tile?.blocksLoe) {
@@ -63,11 +65,17 @@ function cellBlocks(plane: PlaneBase, cell: MapCoordinate, kind: "los" | "loe"):
   if (!feature) {
     return false;
   }
-  const flag = feature.blocksLos;
-  return flag === true || flag === "state";
+  const flag = kind === "los" ? feature.blocksLos : feature.blocksLos;
+  if (flag === "state") {
+    if (featureId === "door") {
+      return save ? doorRuntimeState(save, plane, cell) !== "open" : true;
+    }
+    return true;
+  }
+  return flag === true;
 }
 
-function lineClear(plane: PlaneBase, start: MapCoordinate, end: MapCoordinate, kind: "los" | "loe"): boolean {
+function lineClear(plane: PlaneBase, start: MapCoordinate, end: MapCoordinate, kind: "los" | "loe", save?: SaveState): boolean {
   const cells = supercoverLine(start, end);
   for (const cell of cells) {
     if (cell.x === start.x && cell.y === start.y) {
@@ -76,17 +84,17 @@ function lineClear(plane: PlaneBase, start: MapCoordinate, end: MapCoordinate, k
     if (cell.x === end.x && cell.y === end.y) {
       continue;
     }
-    if (cellBlocks(plane, cell, kind)) {
+    if (cellBlocks(plane, cell, kind, save)) {
       return false;
     }
   }
   return true;
 }
 
-export function hasLineOfSight(plane: PlaneBase, start: MapCoordinate, end: MapCoordinate): boolean {
-  return lineClear(plane, start, end, "los");
+export function hasLineOfSight(plane: PlaneBase, start: MapCoordinate, end: MapCoordinate, save?: SaveState): boolean {
+  return lineClear(plane, start, end, "los", save);
 }
 
-export function hasLineOfEffect(plane: PlaneBase, start: MapCoordinate, end: MapCoordinate): boolean {
-  return lineClear(plane, start, end, "loe");
+export function hasLineOfEffect(plane: PlaneBase, start: MapCoordinate, end: MapCoordinate, save?: SaveState): boolean {
+  return lineClear(plane, start, end, "loe", save);
 }

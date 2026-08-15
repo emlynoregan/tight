@@ -4,7 +4,10 @@ import type { Direction, IntentionalAction, SaveState } from "../model/save-stat
 import { DIRECTIONS } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
 import { spendAdvancementPoint } from "./advancement";
+import { chooseDialogue } from "./dialogue";
 import { equipItem, unequipSlot } from "./inventory";
+import { buyShopSource, sellItem } from "./shops";
+import type { TickEvent } from "./tick-events";
 
 export type PlayerCommand =
   | { readonly type: "queue"; readonly action: IntentionalAction }
@@ -14,7 +17,10 @@ export type PlayerCommand =
   | { readonly type: "closeModal" }
   | { readonly type: "equip"; readonly itemId: string }
   | { readonly type: "unequip"; readonly slot: EquipmentSlotId }
-  | { readonly type: "spendAp"; readonly attribute: AttributeId };
+  | { readonly type: "spendAp"; readonly attribute: AttributeId }
+  | { readonly type: "dialogueChoice"; readonly choiceId: string }
+  | { readonly type: "buy"; readonly sourceId: string }
+  | { readonly type: "sell"; readonly itemId: string };
 
 export type CommandResult =
   | { readonly ok: true }
@@ -68,6 +74,21 @@ function applyPausedMutation(runtime: GameRuntime, command: PlayerCommand): Comm
     const result = spendAdvancementPoint(runtime, command.attribute);
     return result.ok ? { ok: true } : { ok: false, code: "rejected", message: result.message };
   }
+  if (command.type === "dialogueChoice") {
+    const events: TickEvent[] = [];
+    const ok = chooseDialogue(runtime, command.choiceId, events);
+    return ok ? { ok: true } : { ok: false, code: "rejected", message: "illegal dialogue choice" };
+  }
+  if (command.type === "buy") {
+    const events: TickEvent[] = [];
+    const ok = buyShopSource(runtime, command.sourceId, events);
+    return ok ? { ok: true } : { ok: false, code: "rejected", message: "cannot buy" };
+  }
+  if (command.type === "sell") {
+    const events: TickEvent[] = [];
+    const ok = sellItem(runtime, command.itemId, events);
+    return ok ? { ok: true } : { ok: false, code: "rejected", message: "cannot sell" };
+  }
   return { ok: false, code: "rejected", message: "unknown paused command" };
 }
 
@@ -100,7 +121,7 @@ export function applyPlayerCommand(runtime: GameRuntime, command: PlayerCommand)
     save.heldDirection = command.direction;
     return { ok: true };
   }
-  if (command.type === "equip" || command.type === "unequip" || command.type === "spendAp") {
+  if (command.type === "equip" || command.type === "unequip" || command.type === "spendAp" || command.type === "dialogueChoice" || command.type === "buy" || command.type === "sell") {
     if (!save.modal) {
       return { ok: false, code: "rejected", message: "management commands require a paused modal" };
     }

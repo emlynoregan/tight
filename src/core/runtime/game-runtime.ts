@@ -11,6 +11,7 @@ import type { GeneratorVersionId } from "../model/ids";
 import { planeKey, planesEqual, STARTING_PLANE, type MapCoordinate, type PlanePair } from "../model/plane";
 import { defaultAiFields, type ActorState, type EquipmentLoadout, type IntentionalAction, type PendingPlayerTransition, type SaveState } from "../model/save-state";
 import { scaledMonster } from "../rules/actor-stats";
+import { materializeOlympusBoss, materializeOrdinaryEncounters, materializeShopkeepers } from "../rules/encounters";
 import { materializeRuntimePlane } from "./materialize-plane";
 
 export function maxHpForCon(con: number): number {
@@ -94,11 +95,22 @@ function actorAtPoint(
   };
 }
 
-export function materializeNonPlayerActors(topology: WorldTopology, planeBase: PlaneBase, occupied: Set<string> = new Set()): ActorState[] {
+export function materializeNonPlayerActors(
+  topology: WorldTopology,
+  planeBase: PlaneBase,
+  occupied: Set<string> = new Set(),
+  save?: SaveState,
+): ActorState[] {
   const actors: ActorState[] = [];
   const points = new Map(planeBase.namedPoints.map((point) => [point.id, point]));
+  const shopkeeperNpcIds = new Set(
+    topology.shopInstances.filter((shop) => shop.npcInstanceId).map((shop) => shop.npcInstanceId!),
+  );
   for (const npc of topology.npcInstances) {
-    if (!planesEqual(npc.plane, planeBase.plane)) {
+    if (!planesEqual(npc.plane, planeBase.plane) || shopkeeperNpcIds.has(npc.id)) {
+      continue;
+    }
+    if (save?.flags.includes(`defeated:${npc.id}`) || save?.actors.some((row) => row.id === npc.id)) {
       continue;
     }
     const actor = actorAtPoint(npc.id, npc.npcId, "npc", npc.plane, points.get(npc.id));
@@ -112,6 +124,9 @@ export function materializeNonPlayerActors(topology: WorldTopology, planeBase: P
     if (!planesEqual(guardian.plane, planeBase.plane)) {
       continue;
     }
+    if (save?.flags.includes(`defeated:${guardian.id}`) || save?.actors.some((row) => row.id === guardian.id)) {
+      continue;
+    }
     const actor = actorAtPoint(guardian.id, guardian.monsterId, "guardian", guardian.plane, points.get(guardian.id));
     if (!actor || occupied.has(`${actor.y},${actor.x}`)) {
       continue;
@@ -119,6 +134,9 @@ export function materializeNonPlayerActors(topology: WorldTopology, planeBase: P
     occupied.add(`${actor.y},${actor.x}`);
     actors.push(actor);
   }
+  actors.push(...materializeShopkeepers(topology, planeBase, occupied, save));
+  actors.push(...materializeOlympusBoss(topology, planeBase, occupied, save));
+  actors.push(...materializeOrdinaryEncounters(topology, planeBase, occupied, save));
   return actors;
 }
 
@@ -179,6 +197,9 @@ export function createRuntimeFromAccepted(
     flags: [],
     featureStates: [],
     groundItems: [],
+    collectedSources: [],
+    quests: [],
+    awardedApEvents: [],
     pursuits: [],
     consumedTransitionIds: [],
     lastTransition: null,

@@ -94,7 +94,7 @@ export function detectsPlayer(plane: PlaneBase, save: SaveState, actor: ActorSta
     return false;
   }
   const ignoreLos = species.traits.includes("ignore_los_detection") || species.traits.includes("ignoreLOS");
-  if (!ignoreLos && !hasLineOfSight(plane, actor, player)) {
+  if (!ignoreLos && !hasLineOfSight(plane, actor, player, save)) {
     return false;
   }
   if (species.detection === "unlimited") {
@@ -267,7 +267,7 @@ function lexGreater(left: number[], right: number[]): boolean {
 
 function maximizeDistance(ctx: AiContext, preferLos = false): IntentionalAction {
   const direction = pickScoredMove(ctx, (dest) => {
-    const los = hasLineOfSight(ctx.plane, dest, ctx.player) ? 1 : 0;
+    const los = hasLineOfSight(ctx.plane, dest, ctx.player, ctx.save) ? 1 : 0;
     return preferLos ? [distToPlayer(ctx, dest), los] : [distToPlayer(ctx, dest)];
   });
   return direction ? moveAction(direction) : WAIT;
@@ -309,7 +309,7 @@ function skirmisher(ctx: AiContext): IntentionalAction {
   }
   if (distance < SKIRMISH_MIN) {
     const direction = pickScoredMove(ctx, (dest) => {
-      const los = hasLineOfSight(ctx.plane, dest, ctx.player) ? 1 : 0;
+      const los = hasLineOfSight(ctx.plane, dest, ctx.player, ctx.save) ? 1 : 0;
       return [distToPlayer(ctx, dest), los];
     });
     return direction ? moveAction(direction) : WAIT;
@@ -396,7 +396,7 @@ function supporter(ctx: AiContext): IntentionalAction {
 
 function fleeing(ctx: AiContext): IntentionalAction {
   const direction = pickScoredMove(ctx, (dest) => {
-    const brokenLos = hasLineOfSight(ctx.plane, dest, ctx.player) ? 0 : 1;
+    const brokenLos = hasLineOfSight(ctx.plane, dest, ctx.player, ctx.save) ? 0 : 1;
     return [distToPlayer(ctx, dest), brokenLos];
   });
   if (direction) {

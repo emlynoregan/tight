@@ -19,8 +19,10 @@ import type {
 import { materializeNonPlayerActors, type GameRuntime } from "../runtime/game-runtime";
 import { materializeRuntimePlane } from "../runtime/materialize-plane";
 import { actorPreventsPersonalTransition } from "./actor-stats";
+import { grantApEvent } from "./grants";
 import { canOccupy, cellBlockedByTerrain, destinationCell } from "./occupancy";
 import { movementCostTo } from "./pathfinding";
+import { refreshQuestProgress } from "./quests";
 import type { TickEvent } from "./tick-events";
 
 export const PURSUIT_DISTANCE = 6;
@@ -65,8 +67,8 @@ export function switchCurrentPlane(runtime: GameRuntime, plane: PlanePair): Plan
       .filter((actor) => planesEqual(actor.plane, plane))
       .map((actor) => `${actor.y},${actor.x}`),
   );
-  for (const actor of materializeNonPlayerActors(runtime.topology, loaded, occupied)) {
-    if (!known.has(actor.id)) {
+  for (const actor of materializeNonPlayerActors(runtime.topology, loaded, occupied, runtime.save)) {
+    if (!known.has(actor.id) && !runtime.save.flags.includes(`defeated:${actor.id}`)) {
       runtime.save.actors.push(actor);
     }
   }
@@ -314,7 +316,7 @@ function placeByArrivalRule(
   return placeExactThenAdjacent(destPlane, actors, origin, moverId, save);
 }
 
-function recordDiscovery(save: SaveState, dest: PlanePair, events: TickEvent[]): void {
+export function recordDiscovery(save: SaveState, dest: PlanePair, events: TickEvent[]): void {
   const planeKnown = save.discoveredPlanes.some((row) => planesEqual(row, dest));
   if (!planeKnown) {
     save.discoveredPlanes.push({ a: dest.a, b: dest.b });
@@ -326,6 +328,7 @@ function recordDiscovery(save: SaveState, dest: PlanePair, events: TickEvent[]):
       save.discoveredDimensions.push(dimension);
       save.discoveredDimensions.sort((left, right) => left - right);
       events.push({ type: "dimension_discovered", amount: dimension });
+      grantApEvent(save, "ap_dimension_first_entry", `ap_dimension_first_entry:${dimension}`, events);
     }
   }
 }
@@ -409,6 +412,7 @@ export function activateTransition(runtime: GameRuntime, actor: ActorState, atte
     runtime.save.lastTransition = previous;
     recordDiscovery(runtime.save, transition.destinationPlane, events);
     switchCurrentPlane(runtime, transition.destinationPlane);
+    refreshQuestProgress(runtime, events);
     const profile = profileOf(transition);
     runtime.pendingPlayerTransition = {
       sourcePlane: previous.plane,

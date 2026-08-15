@@ -421,6 +421,43 @@ export interface AbilityAcquisition {
   readonly fixedRewardId: CatalogueId | null;
 }
 
+export type DialogueCondition =
+  | { readonly type: "flag"; readonly flag: CatalogueId; readonly equals?: boolean }
+  | { readonly type: "questState"; readonly questId: CatalogueId; readonly state: string }
+  | { readonly type: "itemOwned"; readonly itemId: CatalogueId }
+  | { readonly type: "dimensionDiscovered"; readonly dimension: number }
+  | { readonly type: "attributeAtLeast"; readonly attribute: AttributeId; readonly value: number }
+  | { readonly type: "currencyAtLeast"; readonly amount: number };
+
+export type DialogueEffect =
+  | { readonly type: "setFlag"; readonly flag: CatalogueId }
+  | { readonly type: "startQuest"; readonly questId: CatalogueId }
+  | { readonly type: "completeQuest"; readonly questId: CatalogueId }
+  | { readonly type: "giveItem"; readonly itemId: CatalogueId; readonly quantity?: number }
+  | { readonly type: "giveCurrency"; readonly amount: number }
+  | { readonly type: "teachAbility"; readonly abilityId: CatalogueId }
+  | { readonly type: "heal" }
+  | { readonly type: "openShop" }
+  | { readonly type: "end" };
+
+export interface DialogueChoice {
+  readonly id: CatalogueId;
+  readonly label: string;
+  readonly conditions?: readonly DialogueCondition[];
+  readonly hideWhenUnmet?: boolean;
+  readonly effects?: readonly DialogueEffect[];
+  readonly next?: CatalogueId | null;
+}
+
+export interface DialogueNode {
+  readonly id: CatalogueId;
+  readonly speaker: CatalogueId;
+  readonly text: string;
+  readonly entryConditions?: readonly DialogueCondition[];
+  readonly entryEffects?: readonly DialogueEffect[];
+  readonly choices: readonly DialogueChoice[];
+}
+
 export interface HazardDefinition {
   readonly id: CatalogueId;
   readonly triggers: readonly ("onEnter" | "onEndTick")[];

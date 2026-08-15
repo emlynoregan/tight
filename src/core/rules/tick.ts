@@ -7,6 +7,7 @@ import { applyPeriodicStatuses, expireStatusesAndCooldowns } from "./apply-effec
 import { effectiveAttributes, effectiveInitiativeModifier, syncDerivedMaxHp } from "./actor-stats";
 import { capturePlayerAction } from "./commands";
 import { resolveDeaths } from "./death";
+import { applyEndTickHazards } from "./hazards";
 import { initiativeOrder } from "./initiative";
 import { applyEnvironmentalMovement } from "./space";
 import { activeActors, evaluatePursuitHandoffs, syncPlaneAfterPlayerMove } from "./transitions";
@@ -62,7 +63,8 @@ export function advanceTick(runtime: GameRuntime): TickResult {
     return actor !== undefined && planesEqual(actor.plane, save.plane);
   }), events);
   applyPeriodicStatuses(save, runtime.currentPlaneBase, events);
-  resolveDeaths(save, events);
+  applyEndTickHazards(save, runtime.currentPlaneBase, events);
+  resolveDeaths(runtime, events);
   syncPlaneAfterPlayerMove(runtime, events);
   expireStatusesAndCooldowns(save, events);
   evaluatePursuitHandoffs(runtime, events);

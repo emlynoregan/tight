@@ -82,8 +82,20 @@ export function formatTickEvent(event: TickEvent): string | null {
       return `Dropped ${event.detail ?? "item"}`;
     case "item_used":
       return `Used ${event.detail ?? "item"}`;
-    case "paused":
-      return `Paused (${event.detail ?? "modal"})`;
+    case "hazard_triggered":
+      return event.actorId === "player" ? `Hazard: ${event.detail ?? "environment"}` : null;
+    case "ap_gained":
+      return `Gained ${event.amount ?? 0} AP`;
+    case "quest_started":
+      return `Quest started: ${event.detail ?? ""}`;
+    case "quest_completed":
+      return `Quest complete: ${event.detail ?? ""}`;
+    case "shop_bought":
+      return `Bought ${event.detail ?? "item"}`;
+    case "ability_learned":
+      return `Learned ${event.detail ?? "ability"}`;
+    case "source_collected":
+      return `Collected ${event.targetId ?? "reward"}`;
     default:
       return event.actorId === "player" ? event.type.replaceAll("_", " ") : null;
   }
@@ -130,7 +142,7 @@ export function getHudView(runtime: GameRuntime, messages: readonly string[] = [
     "Space/. wait",
     canInteract ? "E interact" : "E interact (nothing adjacent)",
     canAttack ? `F attack (${attackId})` : "F attack (need adjacent foe)",
-    "G pick up  I inventory  C character  L map key",
+    "G pick up  I inventory  C character  L map key  J quests",
     save.modal ? "Esc close modal" : null,
   ].filter((row): row is string => row !== null);
   return {

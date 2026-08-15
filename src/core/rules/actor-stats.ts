@@ -60,6 +60,16 @@ function equippedItems(save: SaveState, actor: ActorState) {
     .filter((item): item is NonNullable<typeof item> => item !== undefined);
 }
 
+export function equippedProtectionTags(save: SaveState, actor: ActorState): readonly string[] {
+  const tags = new Set<string>();
+  for (const item of equippedItems(save, actor)) {
+    for (const tag of item.combat.protectionTags) {
+      tags.add(tag);
+    }
+  }
+  return [...tags];
+}
+
 export function effectiveAttributes(save: SaveState, actor: ActorState): AttributeBlock {
   let attrs = baseAttributes(save, actor);
   if (actor.kind === "player") {

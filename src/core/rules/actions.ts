@@ -4,11 +4,16 @@ import type { ActorState, IntentionalAction } from "../model/save-state";
 import { DIRECTION_DELTA } from "../model/save-state";
 import type { GameRuntime } from "../runtime/game-runtime";
 import { prepareAction, resolveAbilityAction, resolveAttackAction, resolveItemAction } from "./combat";
-import { actorsOnPlane, canOccupy, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, setFeatureRuntimeState } from "./occupancy";
+import { actorsOnPlane, canOccupy, destinationCell, doorRuntimeState, featureAt, featureIsInteractive, featureRuntimeState, setFeatureRuntimeState } from "./occupancy";
 import { dropInventoryItem, pickupGroundItem } from "./inventory";
 import { applyThrust } from "./space";
+import { applyHazardsAt } from "./hazards";
+import { collectProgressionSource } from "./grants";
+import { openDialogue } from "./dialogue";
 import { maybeStepOnTransition, tryActivateWorldTransition, tryEdgeCross } from "./transitions";
 import type { TickEvent } from "./tick-events";
+import { CONTENT_REGISTRY } from "../data/registry";
+import { itemQuantity } from "./inventory";
 
 export type { TickEvent } from "./tick-events";
 
@@ -52,6 +57,7 @@ export function resolveAction(runtime: GameRuntime, actor: ActorState, action: I
     actor.x = dest.x;
     actor.y = dest.y;
     const events: TickEvent[] = [{ type: "actor_moved", actorId: actor.id, x: dest.x, y: dest.y }];
+    applyHazardsAt(save, plane, actor, "onEnter", events);
     events.push(...maybeStepOnTransition(runtime, actor, true));
     return events;
   }
@@ -111,11 +117,9 @@ function resolveInteract(runtime: GameRuntime, actor: ActorState, action: Intent
     chosenActor = actorTargets.find((row) => row.id === targetId);
   }
   if (chosenActor) {
-    save.modal = `dialogue:${chosenActor.id}`;
-    return [
-      { type: "interacted", actorId: actor.id, targetId: chosenActor.id },
-      { type: "modal_opened", detail: save.modal },
-    ];
+    const events: TickEvent[] = [{ type: "interacted", actorId: actor.id, targetId: chosenActor.id }];
+    openDialogue(runtime, chosenActor.id, events);
+    return events;
   }
   if (chosenFeature?.featureId === "transition_fixture") {
     const events = tryActivateWorldTransition(runtime, actor, chosenFeature.cell, "interact");
@@ -126,16 +130,41 @@ function resolveInteract(runtime: GameRuntime, actor: ActorState, action: Intent
   if (chosenFeature?.featureId === "safe_anchor") {
     save.player.safeAnchor = { plane: save.plane, x: chosenFeature.cell.x, y: chosenFeature.cell.y };
     actor.hp = actor.maxHp;
+    actor.statuses = actor.statuses.filter((instance) => {
+      const def = CONTENT_REGISTRY.byId.status.get(instance.id);
+      return def?.clearedOnPlayerDeath === false;
+    });
     return [{ type: "interacted", actorId: actor.id, targetId: "safe_anchor", x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
   }
   if (chosenFeature?.featureId === "door") {
     const current = doorRuntimeState(save, plane, chosenFeature.cell);
     if (current === "locked") {
-      return [{ type: "action_failed", actorId: actor.id, detail: "door locked" }];
+      const hasKey = save.player.keyItems.some((row) => row.quantity > 0) || itemQuantity(save, "house_key") > 0;
+      if (!hasKey) {
+        return [{ type: "action_failed", actorId: actor.id, detail: "door locked" }];
+      }
+      setFeatureRuntimeState(save, plane.plane, chosenFeature.cell, "open");
+      return [{ type: "door_toggled", actorId: actor.id, targetId: "door", detail: "open", x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
     }
     const next = current === "open" ? "closed" : "open";
     setFeatureRuntimeState(save, plane.plane, chosenFeature.cell, next);
     return [{ type: "door_toggled", actorId: actor.id, targetId: "door", detail: next, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+  }
+  if (chosenFeature && CONTENT_REGISTRY.byId.feature.get(chosenFeature.featureId)?.tags.includes("container")) {
+    const opened = featureRuntimeState(save, plane.plane, chosenFeature.cell);
+    if (opened === "open") {
+      return [{ type: "action_failed", actorId: actor.id, detail: "already opened" }];
+    }
+    const source = runtime.topology.progressionSources.find((row) => {
+      const point = plane.namedPoints.find((named) => named.id === row.id);
+      return point !== undefined && point.x === chosenFeature.cell.x && point.y === chosenFeature.cell.y;
+    });
+    const events: TickEvent[] = [{ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];
+    if (source) {
+      collectProgressionSource(save, source, events, chosenFeature.cell);
+    }
+    setFeatureRuntimeState(save, plane.plane, chosenFeature.cell, "open");
+    return events;
   }
   if (chosenFeature) {
     return [{ type: "interacted", actorId: actor.id, targetId: chosenFeature.featureId, x: chosenFeature.cell.x, y: chosenFeature.cell.y }];

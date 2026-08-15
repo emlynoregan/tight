@@ -125,6 +125,14 @@ export interface FeatureInstanceState {
   state: string;
 }
 
+export type QuestProgressState = "unavailable" | "active" | "complete";
+
+export interface QuestProgress {
+  instanceId: CatalogueId;
+  questId: CatalogueId;
+  state: QuestProgressState;
+}
+
 export type PursuitMode = "follow_same_transition" | "phase_to_arrival" | "emerge_adjacent";
 
 export type PursuitArrivalRule = "exact" | "exact_or_fail" | "adjacent_nesw" | "nearest_legal";
@@ -176,6 +184,9 @@ export interface SaveState {
   flags: string[];
   featureStates: FeatureInstanceState[];
   groundItems: GroundItemState[];
+  collectedSources: string[];
+  quests: QuestProgress[];
+  awardedApEvents: string[];
   pursuits: PursuitHandoff[];
   consumedTransitionIds: string[];
   lastTransition: LastTransition | null;

@@ -74,6 +74,9 @@ function frame(now: number): void {
     renderManagementModal(shell, snapshot.hud.modal, snapshot.inventory, snapshot.character, {
       plane: snapshot.plane,
       presentation: controller.presentation,
+      dialogue: snapshot.dialogue,
+      shop: snapshot.shop,
+      quests: snapshot.quests,
     });
   } catch (error) {
     console.error(error);
