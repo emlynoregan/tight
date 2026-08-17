@@ -8,6 +8,8 @@ The player cannot teleport by picking a dimension. Travel requires something in 
 
 This repository is the playable v1 implementation: a static TypeScript/Vite browser game with a headless, fully testable rules core. Presentation is currently **procedural placeholder** art and audio, designed to be replaceable later without changing rules, saves, or world generation.
 
+**Play:** [https://tight-bronzearch.house-of-ur.com/](https://tight-bronzearch.house-of-ur.com/) (House of Ur, House of Bronze Arch). Fresh run: [/?new=1&seed=0](https://tight-bronzearch.house-of-ur.com/?new=1&seed=0).
+
 ## What the game is trying to be
 
 At first the opening plane should feel almost too ordinary: grass, paths, a village, a sword, a shrine. Then another direction through the same reality becomes available. Then the network of planes becomes the puzzle. Then some things follow. Then the player understands the structure well enough to climb toward Olympus.
@@ -184,6 +186,8 @@ npm run build
 
 emits a backend-free `dist/` with relative `./assets/` URLs, suitable for ordinary static hosting.
 
+Republish to House of Ur (prod Bronze Arch): `python scripts/publish_hou_site.py --build` (needs `HOU_API_KEY`). Live site: [https://tight-bronzearch.house-of-ur.com/](https://tight-bronzearch.house-of-ur.com/).
+
 Full controls, HUD, inventory Use/Drop, and first-hour notes: [docs/how-to-play.md](docs/how-to-play.md).
 
 ### Tests
@@ -210,7 +214,7 @@ The game is **mechanically complete for v1**: New Game on `(0,1)` through death,
 | Accessibility (focus trap, reduced motion, touch, labels) | done |
 | Browser acceptance tests | done against `dist/` |
 | 32-seed accepted-world release sweep | done (retained fixture) |
-| Live House of Ur static-site deploy | **not done** — blocked on **dev** credentials |
+| Live House of Ur static-site deploy | done — https://tight-bronzearch.house-of-ur.com/ |
 
 Presentation is not final art. The renderer talks to a visual/audio **provider**. Procedural placeholders can be swapped for authored assets without changing `SaveState` or generation.
 

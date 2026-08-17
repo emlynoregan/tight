@@ -2,6 +2,8 @@
 
 Tight is a 16×16 top-down RPG. The clock runs at **one tick per second** on the current plane. Modal screens pause it.
 
+**Live:** [https://tight-bronzearch.house-of-ur.com/](https://tight-bronzearch.house-of-ur.com/) · fresh game: [/?new=1&seed=0](https://tight-bronzearch.house-of-ur.com/?new=1&seed=0)
+
 This page is the player-facing loop. World structure is in [universe.md](./universe.md). Formulas are in [systems.md](./systems.md).
 
 ## Start

@@ -96,6 +96,7 @@ npm run preview          # serve dist/
 npm run test:browser     # build + Playwright
 npm run seed-sweep       # 8-seed headless accepted-world
 npm run seed-sweep:release   # 32-seed full getAcceptedWorld (set TIGHT_SEED_SWEEP_RELEASE)
+python scripts/publish_hou_site.py --build   # upload dist/ to House of Ur Library + static Site
 ```
 
 On Windows PowerShell, `npm.ps1` may be blocked; use `npm.cmd` / `npx.cmd`.
