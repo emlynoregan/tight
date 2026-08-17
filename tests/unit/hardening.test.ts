@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyPlayerCommand,
   createAcceptedWorldCache,
   createNewGame,
+  getCharacterView,
+  getInventoryView,
   hashSaveState,
   makeSaveRecord,
   parseSaveJson,
@@ -11,6 +14,8 @@ import { forceNewFromLocation, qaModeFromLocation, seedFromLocation, shareSeedUr
 import { mapKeydown } from "../../src/input/input-map";
 import { MemoryPersistence, normalizePreferences } from "../../src/persistence";
 import { PresentationFacade, ProceduralVisualProvider, SilentAudioProvider } from "../../src/presentation";
+import { renderManagementModal } from "../../src/ui/modals";
+import type { ShellElements } from "../../src/ui/shell";
 
 function silent(options: GameControllerOptions = {}) {
   return new GameController({
@@ -147,5 +152,44 @@ describe("browser QA setup helpers", () => {
           event.type === "monster_died",
       ),
     ).toBe(true);
+  });
+});
+
+describe("management modal DOM", () => {
+  it("does not rewrite inventory markup while the snapshot is unchanged", () => {
+    const runtime = createNewGame("tight-v1", "0", { cache: createAcceptedWorldCache() });
+    runtime.save.modal = "inventory";
+    let writes = 0;
+    let html = "";
+    const modal = {
+      hidden: true,
+      dataset: {} as DOMStringMap,
+      get innerHTML() {
+        return html;
+      },
+      set innerHTML(value: string) {
+        html = value;
+        writes += 1;
+      },
+      setAttribute() {},
+      removeAttribute() {},
+      replaceChildren() {
+        html = "";
+      },
+      querySelector() {
+        return { focus() {} };
+      },
+    };
+    const shell = { modal } as unknown as ShellElements;
+    const character = getCharacterView(runtime);
+    renderManagementModal(shell, "inventory", getInventoryView(runtime), character);
+    renderManagementModal(shell, "inventory", getInventoryView(runtime), character);
+    expect(writes).toBe(1);
+    expect(html).toContain("Healing Herb");
+    expect(html).not.toContain("Sword ×");
+    expect(applyPlayerCommand(runtime, { type: "unequip", slot: "weapon" }).ok).toBe(true);
+    renderManagementModal(shell, "inventory", getInventoryView(runtime), character);
+    expect(writes).toBe(2);
+    expect(html).toContain("Sword ×");
   });
 });

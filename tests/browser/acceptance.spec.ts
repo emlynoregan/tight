@@ -50,6 +50,18 @@ test.describe("Tight browser acceptance", () => {
     await expect(page.locator(".tight-plane")).toContainText("tick 1", { timeout: 30_000 });
   });
 
+  test("uses a healing herb from the inventory modal", async ({ page }) => {
+    await boot(page);
+    await page.keyboard.press("i");
+    await expect(page.getByRole("heading", { name: "Inventory" })).toBeVisible();
+    const useHerb = page.locator('[data-cmd="use"][data-item="healing_herb"]');
+    await expect(useHerb).toBeVisible();
+    await page.waitForTimeout(120);
+    await useHerb.click();
+    await expect(page.getByRole("heading", { name: "Inventory" })).toHaveCount(0);
+    await expect(page.locator(".tight-log")).toContainText("Used healing_herb", { timeout: 4_000 });
+  });
+
   test("exports and imports a save", async ({ page }) => {
     await boot(page);
     await page.keyboard.press("Space");

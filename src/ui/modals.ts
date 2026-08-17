@@ -16,6 +16,7 @@ import type { ShellElements } from "./shell";
 const SLOTS: readonly EquipmentSlotId[] = ["weapon", "offhand", "body", "head", "charm", "artefact"];
 const ATTRS = ["str", "dex", "con", "spd", "wis", "int", "cha", "psy"] as const;
 const STATIC_MODALS = new Set(["settings", "confirm-new-game", "confirm-import", "victory"]);
+const modalMarkup = new WeakMap<HTMLElement, string>();
 
 export interface AppUiHandlers {
   exportSave(): void;
@@ -189,6 +190,7 @@ export function renderManagementModal(
     shell.modal.replaceChildren();
     delete shell.modal.dataset.rendered;
     shell.modal.removeAttribute("aria-labelledby");
+    modalMarkup.delete(shell.modal);
     return;
   }
   if (STATIC_MODALS.has(modal) && shell.modal.dataset.rendered === modal && !shell.modal.hidden) {
@@ -270,12 +272,18 @@ export function renderManagementModal(
 }
 
 function setModal(shell: ShellElements, modal: string, html: string, label: string): void {
+  const next = html.includes("id=\"tight-modal-title\"") ? html : `<h2 id="tight-modal-title">${escapeHtml(label)}</h2>${html}`;
+  // The rAF loop re-renders HUD every frame. Replacing innerHTML here would destroy
+  // buttons between mousedown and mouseup, so inventory Use/Drop/Equip never fire.
+  if (!shell.modal.hidden && shell.modal.dataset.rendered === modal && modalMarkup.get(shell.modal) === next) {
+    return;
+  }
   shell.modal.hidden = false;
   shell.modal.dataset.rendered = modal;
   shell.modal.setAttribute("aria-labelledby", "tight-modal-title");
-  shell.modal.innerHTML = html.includes("id=\"tight-modal-title\"") ? html : `<h2 id="tight-modal-title">${escapeHtml(label)}</h2>${html}`;
-  const focusable = firstFocusable(shell.modal);
-  focusable?.focus();
+  modalMarkup.set(shell.modal, next);
+  shell.modal.innerHTML = next;
+  firstFocusable(shell.modal)?.focus();
 }
 
 function settingsMarkup(view: SettingsView): string {
